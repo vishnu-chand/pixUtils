@@ -26,5 +26,5 @@ def torch2img(x):
 
 
 def torch2mask(x):
-    x = torch.squeeze(x, dim=1) if len(x.shape) == 3 else x[0]
+    x = torch.squeeze(x, dim=1) if len(x.shape) == 4 else x[0]
     return x.cpu().numpy()

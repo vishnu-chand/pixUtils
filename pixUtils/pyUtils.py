@@ -630,3 +630,10 @@ def compareVersions(versions, compareBy, ovideoPlayer=None, putTitle=bboxLabel, 
                 res.append(cv2.inRange(diff.min(axis=-1), 10, 300))
             datas.append(res)
         yield datas
+
+
+def video2img(vpath, des):
+    for fno, ftm, img in videoPlayer(vpath):
+        cv2.imwrite(des.format(fno=fno), img)
+
+
