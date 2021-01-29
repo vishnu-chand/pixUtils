@@ -4,3 +4,4 @@ if ' ':
     from .pyUtils import *
     # from .cvUtils import *
     from .torchCommon import *
+    from .jupyterUtils import *
