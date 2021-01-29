@@ -1,5 +1,4 @@
 from pixUtils import *
-
 import torch
 import torch.nn.functional as F
 from skimage.filters import gaussian
@@ -7,26 +6,6 @@ from torchvision.transforms import Normalize
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-try:
-    from google.colab.patches import cv2_imshow
-
-    cv2.imshow = lambda winName, img: cv2_imshow(img)
-except:
-    pass
-
-
-def bboxScale(img, bbox, scaleWH):
-    try:
-        sw, sh = scaleWH
-    except:
-        sw, sh = scaleWH, scaleWH
-    x, y, w, h = bbox
-    xc, yc = (x + w / 2, y + h / 2)
-    w *= sw
-    h *= sh
-    x, y = xc - w / 2, yc - h / 2
-    return frameFit(img, (x, y, w, h))
 
 
 def changeBg(image, target, bgclr):
@@ -63,31 +42,6 @@ def normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), reverse=Fal
         return dict(image=image, mask=mask)
 
     return _normalize
-
-
-def showImg(winName='out', imgs=[], titles=None, figsize=(15, 15), bgrImg=True, cv=False):
-    if type(imgs) != list:
-        imgs = [imgs]
-    if cv:
-        for img in imgs:
-            if not bgrImg:
-                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            cv2_imshow(img)
-    else:
-        plts = getSubPlots(len(imgs), figsize=figsize)
-        if titles:
-            for (title, ax), img, iname in zip(plts, imgs, titles):
-                if bgrImg:
-                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                ax.imshow(img)
-                title(iname)
-        else:
-            for (title, ax), img in zip(plts, imgs):
-                if bgrImg:
-                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                ax.imshow(img)
-                title(f"{img.dtype}{img.shape}")
-        plt.show()
 
 
 def img2torch(x, device):
