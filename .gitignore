@@ -4,4 +4,4 @@ pixUtils/__pycache__
 
 #include
 !*.py
-!.idea
+!.idea/*
