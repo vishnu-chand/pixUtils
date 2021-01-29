@@ -207,6 +207,19 @@ def frameFit(img, bbox):
     return np.array((x0, y0, max(0, x1 - x0), max(0, y1 - y0)))
 
 
+def bboxScale(img, bbox, scaleWH):
+    try:
+        sw, sh = scaleWH
+    except:
+        sw, sh = scaleWH, scaleWH
+    x, y, w, h = bbox
+    xc, yc = (x + w / 2, y + h / 2)
+    w *= sw
+    h *= sh
+    x, y = xc - w / 2, yc - h / 2
+    return frameFit(img, (x, y, w, h))
+
+
 def putSubImg(mainImg, subImg, loc, interpolation=cv2.INTER_CUBIC):
     """
     place the sub image inside the genFrame image

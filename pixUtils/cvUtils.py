@@ -13,18 +13,6 @@
 #     return np.array([0, 0, img.shape[1], img.shape[0]])
 #
 #
-def bboxScale(img, bbox, scaleWH):
-    try:
-        sw, sh = scaleWH
-    except:
-        sw, sh = scaleWH, scaleWH
-    x, y, w, h = bbox
-    xc, yc = (x + w / 2, y + h / 2)
-    w *= sw
-    h *= sh
-    x, y = xc - w / 2, yc - h / 2
-    return frameFit(img, (x, y, w, h))
-
 #
 # def bbox2dbbox(img, bbox):
 #     '''
