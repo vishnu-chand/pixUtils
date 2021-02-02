@@ -125,7 +125,7 @@ class DummyDataLoader:
 
 def readBook(guidePath):
     with open(guidePath, 'r') as book:
-        lines = book.read().split('\n')
+        lines = book.read().strip().split('\n')
     return lines
 
 
