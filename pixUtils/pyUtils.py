@@ -63,65 +63,63 @@ class tqdm:
         self.pbar.set_description(msg)
 
 
-# class DotDict(dict):
-#     def __init__(self, datas=None):
-#         super().__init__()
-#         if isinstance(datas, argparse.Namespace):
-#             datas = vars(datas)
-#         datas = dict() if datas is None else datas
-#         for k, v in datas.items():
-#             self[k] = v
-#
-#     def __getattr__(self, key):
-#         if key not in self:
-#             print("56 __getattr__ pixCommon key: ", key)
-#
-#             raise AttributeError(key)
-#         else:
-#             return self[key]
-#
-#     def __setattr__(self, key, val):
-#         self[key] = val
-#
-#     def __repr__(self):
-#         keys = list(self.keys())
-#         nSpace = len(max(keys, key=lambda x: len(x))) + 2
-#         keys = sorted(keys)
-#         data = [f'{key:{nSpace}}: {self[key]},' for key in keys]
-#         data = '{\n%s\n}' % '\n'.join(data)
-#         return data
-#
-#     def copy(self):
-#         return DotDict(super().copy())
-#
-#     def toJson(self):
-#         res = OrderedDict()
-#         for k, v in self.items():
-#             try:
-#                 json.dumps({k: v})
-#                 res[k] = v
-#             except:
-#                 res[k] = str(v)
-#         return json.dumps(res)
-#
-#     def toDict(self):
-#         res = OrderedDict()
-#         for k, v in self.items():
-#             try:
-#                 json.dumps({k: v})
-#                 res[k] = v
-#             except:
-#                 res[k] = str(v)
-#         return res
+class DotDict(dict):
+    def __init__(self, datas=None):
+        super().__init__()
+        if isinstance(datas, argparse.Namespace):
+            datas = vars(datas)
+        datas = dict() if datas is None else datas
+        for k, v in datas.items():
+            self[k] = v
+
+    def __getattr__(self, key):
+        if key not in self:
+            print("56 __getattr__ pixCommon key: ", key)
+            raise AttributeError(key)
+        else:
+            return self[key]
+
+    def __setattr__(self, key, val):
+        self[key] = val
+
+    def __repr__(self):
+        keys = list(self.keys())
+        nSpace = len(max(keys, key=lambda x: len(x))) + 2
+        keys = sorted(keys)
+        data = [f'{key:{nSpace}}: {self[key]},' for key in keys]
+        data = '{\n%s\n}' % '\n'.join(data)
+        return data
+
+    def copy(self):
+        return DotDict(super().copy())
+
+    def toJson(self):
+        res = OrderedDict()
+        for k, v in self.items():
+            try:
+                json.dumps({k: v})
+                res[k] = v
+            except:
+                res[k] = str(v)
+        return json.dumps(res)
+
+    def toDict(self):
+        res = OrderedDict()
+        for k, v in self.items():
+            try:
+                json.dumps({k: v})
+                res[k] = v
+            except:
+                res[k] = str(v)
+        return res
 
 
-# def readYaml(src, defaultDict=None):
-#     if os.path.exists(src) or defaultDict is None:
-#         with open(src, 'r') as book:
-#             data = yaml.safe_load(book)
-#     else:
-#         data = defaultDict
-#     return DotDict(data)
+def readYaml(src, defaultDict=None):
+    data = defaultDict
+    if os.path.exists(src):
+        with open(src, 'r') as book:
+            data = yaml.safe_load(book)
+    return DotDict(data)
 
 
 # def writeYaml(yamlPath, jObjs):
@@ -407,6 +405,23 @@ def showImg(winname='output', imC=None, delay=None, windowConfig=0, nRow=None, c
 #         return 1
 #     return imC
 
+def prr(name, img):
+    import torch  # TODO remove this or add tf support
+    if type(img) == list:
+        img = torch.stack(img)
+    try:
+        mean, std = f'\n\t\tmean :\t{img.mean()}', f'\n\t\tstd  :\t{img.std()}'
+    except:
+        mean, std = '', ''
+    data = f"""
+    ________________ {name} ________________
+            shape:\t{img.shape}
+            dtype:\t{img.dtype}
+            min  :\t{img.min()}
+            max  :\t{img.max()}{mean}{std}
+            """
+    print(data.strip())
+
 
 def getSubPlots(nrows=1, ncols=-1, axisOff=True, tight=True, figsize=(15, 15), sharex=False, sharey=False, squeeze=True, subplot_kw=None, gridspec_kw=None, **fig_kw):
     if ncols != -1:
@@ -559,15 +574,16 @@ def photoframe(imgs, rcsize=None, nRow=None, resize_method=cv2.INTER_LINEAR, fit
         return cv2.vconcat(resimg)
 
 
-def downloadDB(url, des, rename='', noCertificate=False, unzip=False):
+def downloadDB(url, des, rename=''):
     url = [c.strip() for c in url.replace('\n', ';').split(';')]
     url = ' '.join([c for c in url if c and not c.startswith('#')])
     dirop(des)
     downloadCmd = f'cd "{des}";'
     if not exists(url):
-        if 'https://github.com' in url:
-            downloadCmd += f'git clone "{url}";'
-        elif 'https://drive.google.com' in url:
+        if url.startswith('git+'):
+            downloadCmd += f'git clone "{url.lstrip("git+")}";'
+        elif url.startswith('gdrive+'):
+            url = url.lstrip('gdrive+')
             if '/d/' in url:
                 gid = url
                 gid = gid.split('/d/')[1]
@@ -577,17 +593,17 @@ def downloadDB(url, des, rename='', noCertificate=False, unzip=False):
                 gid = gid.split('id=')[1]
                 gid = gid.split('&')[0]
             downloadCmd += f'gdown https://drive.google.com/uc?id={gid};'
-        elif 'https://www.youtube.com' in url:
-            downloadCmd += f"youtube-dl '{url}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
-        elif noCertificate:
-            downloadCmd += f'wget --no-check-certificate "{url}";'
-        else:
-            downloadCmd += f'wget "{url}";'
+        elif url.startswith('youtube+'):
+            downloadCmd += f"youtube-dl '{url.lstrip('youtube+')}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
+        elif url.startswith('wgetNoCertificate+'):
+            downloadCmd += f'wget --no-check-certificate "{url.lstrip("wgetNoCertificate+")}";'
+        elif url.startswith('wget+'):
+            downloadCmd += f'wget "{url.lstrip("wget+")}";'
         old = set(glob(f'{des}/*'))
         print("____________________________________________________________________________________________________________________")
         print(f"\n             {downloadCmd}\n")
         print("____________________________________________________________________________________________________________________")
-        exeIt(downloadCmd)
+        exeIt(downloadCmd, returnOutput=False)
         returnData = list(set(glob(f'{des}/*')) - old)
     else:
         returnData = [url]
@@ -598,11 +614,14 @@ def downloadDB(url, des, rename='', noCertificate=False, unzip=False):
     returnData = returnData[0]
     if rename:
         returnData = dirop(returnData, mv=join(dirname(returnData), rename))
-    if unzip:
-        print("unziping dataset")
+    try:
+        print("unzip dataset")
         print("zip: ", returnData)
-        print("des: ", returnData.split('.')[0])
-        returnData = unzipIt(returnData, returnData.split('.')[0])
+        returnData = unzipIt(returnData, f"{dirname(returnData)}/{basename(returnData).split('.')[0]}")
+    except Exception as exp:
+        print(f"skipping unzip: {returnData}")
+        print(exp)
+    print("returnData: ", returnData)
     return returnData
 
 
@@ -650,3 +669,11 @@ def video2img(vpath, des):
         cv2.imwrite(des.format(fno=fno), img)
 
 
+def rglob(p1, p2=None):
+    if p2:
+        res = []
+        for p1 in glob(p1):
+            res.extend(list(map(str, Path(p1).rglob(p2))))
+        return res
+    else:
+        return glob(p1)
