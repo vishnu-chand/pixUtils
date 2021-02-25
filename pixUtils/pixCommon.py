@@ -124,7 +124,7 @@ def dirop(*dirpath, **kw):
 
 
 def getTimeStamp():
-    return dt.now().strftime("%H_%M%b%d_%S%f")
+    return dt.now().strftime("%b%d_%H_%M_%S%f")
 
 
 def videoPlayer(vpath, startSec=0.0, stopSec=np.inf):

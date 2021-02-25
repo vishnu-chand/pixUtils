@@ -26,7 +26,7 @@ def torchChangeBG(images, outputs, bgColor):
     return res
 
 
-def normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), reverse=False, maxPix=255):
+def normalize(reverse, maxPix, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
     """
       the albumentations results are not matching with this implementation
       need to test more with albumentations [maxPix=255]
@@ -36,9 +36,9 @@ def normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), reverse=Fal
         if reverse:
             std = 1 / np.array(std)
             mean = -np.array(mean) * std
-        print(mean, std)
         image -= np.array(mean)
         image /= np.array(std)
+        image *= maxPix
         return dict(image=image, mask=mask)
 
     return _normalize
@@ -56,17 +56,32 @@ def mask2torch(x, device):
     if type(x) == list:
         x = np.array(x)
     x = torch.from_numpy(x)
-    x = torch.unsqueeze(x, dim=1) if len(x.shape) == 3 else x[None]
+    nCh = len(x.shape)
+    if nCh == 3:
+        x = torch.unsqueeze(x, dim=1)
+    else:
+        x = x[None]
     return x.to(device)
 
 
-def torch2img(x):
-    x = x.permute(1, 2, 0) if len(x.shape) == 3 else x.permute(0, 2, 3, 1)
-    return x.cpu().numpy()
+def torch2img(x, normalize=None):
+    nCh = len(x.shape)
+    if nCh == 4:
+        x = x.permute(0, 2, 3, 1)
+    if nCh == 3:
+        x = x.permute(1, 2, 0)
+    x = x.cpu().numpy()
+    if normalize:
+        x = normalize(x)['image'].astype('u1')
+    return x
 
 
 def torch2mask(x):
-    x = torch.squeeze(x, dim=1) if len(x.shape) == 4 else x[0]
+    nCh = len(x.shape)
+    if nCh == 4:
+        x = torch.squeeze(x, dim=1)
+    elif nCh == 3:
+        x = x[0]
     return x.cpu().numpy()
 
 
@@ -79,10 +94,12 @@ def genGuideBook(dataRootPaths, desDir, nSamples=None):
     segPat = '{data}/SegmentationClassRaw/{iname}.png'
     valBook = '{data}/ImageSets/Segmentation/val.txt'
     trainBook = '{data}/ImageSets/Segmentation/train.txt'
-
+    startIx = []
     for guideBook, desPath in [(trainBook, trainDatasPath), (valBook, valDatasPath)]:
+        counter = 0
         with open(desPath, 'w') as book:
             for data in dataRootPaths:
+                startIx.append(counter)
                 lines = Path(guideBook.format(data=data)).read_text().split('\n')
                 if nSamples is not None:
                     lines = lines[:nSamples]
@@ -90,6 +107,7 @@ def genGuideBook(dataRootPaths, desDir, nSamples=None):
                     iname = iname.strip()
                     if iname:
                         line = f"{basename(data)}, {imPat.format(data=data, iname=iname)}, {segPat.format(data=data, iname=iname)}\n"
+                        counter += 1
                         book.write(line)
 
     for dataPath in [trainDatasPath, valDatasPath]:
@@ -99,7 +117,7 @@ def genGuideBook(dataRootPaths, desDir, nSamples=None):
         for mask in data[:5]:
             print(mask)
     print("\n______________________________________________________________________________")
-    return trainDatasPath, valDatasPath
+    return trainDatasPath, valDatasPath, startIx
 
 
 def applyTransforms(image, mask, transformers, hasLabels):
@@ -152,10 +170,12 @@ def cropFace(image, mask, bbox, landMarks, p=0.5):
 
 
 class GenImgData(Dataset):
-    def __init__(self, guidePath, transformers, postTransformers):
+    def __init__(self, guidePath, nSamples, transformers, postTransformers):
         self.transformers = transformers
         self.postTransformers = postTransformers
         self.dataPaths = [line.split(', ') for line in readBook(guidePath)]
+        if nSamples is not None:
+            self.dataPaths = self.dataPaths[:nSamples]
 
     def __len__(self):
         return len(self.dataPaths)
@@ -175,15 +195,17 @@ class GenImgData(Dataset):
         dtype, image, mask = self.getData(ix)
         image, mask = applyTransforms(image, mask, self.transformers, True)
         image, mask = self.postPrcs(image, mask)
-        return ix, image, mask
+        return image, mask
 
 
 class GenImgDataCopyPasteAug(Dataset):
-    def __init__(self, guidePath, faceBoxPath, transformers, pasteTransformers, postTransformers):
+    def __init__(self, guidePath, faceBoxPath, nSamples, transformers, pasteTransformers, postTransformers):
         self.transformers = transformers
         self.postTransformers = postTransformers
         self.pasteTransformers = pasteTransformers
         self.dataPaths = [line.split(', ') for line in readBook(guidePath)]
+        if nSamples is not None:
+            self.dataPaths = self.dataPaths[:nSamples]
         self.faceBoxs = [json.loads(d) for d in readBook(faceBoxPath) if d.strip()]
         self.faceBoxs = {d['impath']: d for d in self.faceBoxs}
 
@@ -217,18 +239,20 @@ class GenImgDataCopyPasteAug(Dataset):
                 image = image_copy_paste(image, pasteImage, pasteMask, blend=True)
                 mask = image_copy_paste(mask, pasteMask, pasteMask, blend=False)
         image, mask = self.postPrcs(image, mask)
-        return ix, image, mask
+        return image, mask
 
 
 class GenVideoData(IterableDataset):
-    def __init__(self, vpaths, transformers, skipFrame=10):
+    def __init__(self, vpaths, transformers, postTransformers, skipFrame=10):
         self.vpaths = vpaths
         self.skipFrame = skipFrame
         self.transformers = transformers
+        self.postTransformers = postTransformers
 
-    @staticmethod
-    def postPrcs(fno, image, mask):
-        return fno, image, mask
+    def postPrcs(self, image, mask):
+        image, mask = applyTransforms(image, mask, self.postTransformers, True)
+        mask = torch.Tensor() if mask is None else mask
+        return image, mask
 
     def __iter__(self):
         for vpath in self.vpaths:
@@ -237,15 +261,30 @@ class GenVideoData(IterableDataset):
                 mask = None
                 if ix % self.skipFrame == 0:
                     image, mask = applyTransforms(image, mask, self.transformers, False)
-                    mask = torch.Tensor() if mask is None else mask
-                    yield self.postPrcs(fno, image, mask)
+                    image, mask = self.postPrcs(image, mask)
+                    yield fno, image, mask
+
+
+# def inferDatas(model, testDatas, device):
+#     model.to(device)
+#     model.eval()
+#     with torch.no_grad():
+#         for i, (odatas, xs, ys) in tqdm(enumerate(testDatas)):
+#             tik = clk()
+#             ps = model(xs.to(device, non_blocking=True))
+#             tok = tik.tok("").last()
+#             ps = torch.argmax(ps, dim=1)
+#             ps = ps.cpu().numpy()
+#             for (ix, ox, oy), p in zip(zip(*odatas), ps):
+#                 ox, oy = ox.numpy(), oy.numpy()
+#                 yield ix, tok, ox, oy, p
 
 
 def inferDatas(model, testDatas, device):
     model.to(device)
     model.eval()
     with torch.no_grad():
-        for i, (odatas, xs, ys) in tqdm(enumerate(testDatas)):
+        for i, (ix, xs, ys) in tqdm(enumerate(testDatas)):
             tik = clk()
             ps = model(xs.to(device, non_blocking=True))
             tok = tik.tok("").last()

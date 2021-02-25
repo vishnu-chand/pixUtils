@@ -59,8 +59,11 @@ class tqdm:
                 yield i
                 self.pbar.update(1)
 
-    def set_description(self, msg):
-        self.pbar.set_description(msg)
+    def set_msg(self, description=None, postFix=None):
+        if description is not None:
+            self.pbar.set_description(description)
+        if postFix is not None:
+            self.pbar.set_postfix(postFix)
 
 
 class DotDict(dict):
@@ -122,9 +125,9 @@ def readYaml(src, defaultDict=None):
     return DotDict(data)
 
 
-# def writeYaml(yamlPath, jObjs):
-#     with open(yamlPath, 'w') as book:
-#         yaml.dump(yaml.safe_load(jObjs), book, default_flow_style=False, sort_keys=False)
+def writeYaml(yamlPath, jObjs):
+    with open(yamlPath, 'w') as book:
+        yaml.dump(yaml.safe_load(jObjs), book, default_flow_style=False, sort_keys=False)
 
 
 def readPkl(pklPath, defaultData=None):
@@ -376,14 +379,18 @@ class Wait:
 __wait = Wait()
 
 
-def showImg(winname='output', imC=None, delay=None, windowConfig=0, nRow=None, chFirst=False):
+def showImg(winname='output', imC=None, delay=None, windowConfig=0, nRow=None, chFirst=False, useMatplot=False):
     winname = str(winname)
     if imC is not None:
         if type(imC) is not list:
             imC = [imC]
         imC = photoframe(imC, nRow=nRow, chFirst=chFirst)
-        cv2.namedWindow(winname, windowConfig)
-        cv2.imshow(winname, imC)
+        if useMatplot:
+            plt.imshow(imC)
+            plt.show()
+        else:
+            cv2.namedWindow(winname, windowConfig)
+            cv2.imshow(winname, imC)
 
     if delay is not None:
         key = __wait(delay)
@@ -410,15 +417,17 @@ def prr(name, img):
     if type(img) == list:
         img = torch.stack(img)
     try:
-        mean, std = f'\n\t\tmean :\t{img.mean()}', f'\n\t\tstd  :\t{img.std()}'
+        mean, std = f'mean :\t{img.mean()}', f'std  :\t{img.std()}'
     except:
-        mean, std = '', ''
+        mean, std = f'mean :\t{img.float().mean()}', f'std  :\t{img.float().std()}'
     data = f"""
     ________________ {name} ________________
             shape:\t{img.shape}
             dtype:\t{img.dtype}
             min  :\t{img.min()}
-            max  :\t{img.max()}{mean}{std}
+            max  :\t{img.max()}
+            {mean}
+            {std}
             """
     print(data.strip())
 
@@ -580,10 +589,10 @@ def downloadDB(url, des, rename=''):
     dirop(des)
     downloadCmd = f'cd "{des}";'
     if not exists(url):
-        if url.startswith('git+'):
-            downloadCmd += f'git clone "{url.lstrip("git+")}";'
-        elif url.startswith('gdrive+'):
-            url = url.lstrip('gdrive+')
+        if url.startswith('git+ '):
+            downloadCmd += f'git clone "{url.lstrip("git+ ")}";'
+        elif url.startswith('gdrive+ '):
+            url = url.lstrip('gdrive+ ')
             if '/d/' in url:
                 gid = url
                 gid = gid.split('/d/')[1]
@@ -593,17 +602,17 @@ def downloadDB(url, des, rename=''):
                 gid = gid.split('id=')[1]
                 gid = gid.split('&')[0]
             downloadCmd += f'gdown https://drive.google.com/uc?id={gid};'
-        elif url.startswith('youtube+'):
-            downloadCmd += f"youtube-dl '{url.lstrip('youtube+')}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
-        elif url.startswith('wgetNoCertificate+'):
-            downloadCmd += f'wget --no-check-certificate "{url.lstrip("wgetNoCertificate+")}";'
-        elif url.startswith('wget+'):
-            downloadCmd += f'wget "{url.lstrip("wget+")}";'
+        elif url.startswith('youtube+ '):
+            downloadCmd += f"youtube-dl '{url.lstrip('youtube+ ')}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
+        elif url.startswith('wgetNoCertificate+ '):
+            downloadCmd += f'wget --no-check-certificate "{url.lstrip("wgetNoCertificate+ ")}";'
+        elif url.startswith('wget+ '):
+            downloadCmd += f'wget "{url.lstrip("wget+ ")}";'
         old = set(glob(f'{des}/*'))
         print("____________________________________________________________________________________________________________________")
         print(f"\n             {downloadCmd}\n")
         print("____________________________________________________________________________________________________________________")
-        exeIt(downloadCmd, returnOutput=False)
+        exeIt(downloadCmd, returnOutput=False, debug=True)
         returnData = list(set(glob(f'{des}/*')) - old)
     else:
         returnData = [url]

@@ -2,7 +2,7 @@ import os
 import json
 import subprocess as sp
 
-bashEnv = os.getenv('bashEnv', '')
+bashEnv = os.getenv('bashEnv', 'export PATH=/home/ec2-user/miniconda3/bin:$PATH;eval "$(conda shell.bash hook)";conda activate gputf;')
 
 
 def decodeCmd(cmd, sepBy):
@@ -12,7 +12,7 @@ def decodeCmd(cmd, sepBy):
     return cmd
 
 
-def exeIt(cmd, returnOutput=True, waitTillComplete=True, sepBy=' ', inData=None, debug=False, enableException=True):
+def exeIt(cmd, returnOutput=False, waitTillComplete=True, sepBy=' ', inData=None, debug=True, enableException=True):
     if returnOutput and not waitTillComplete:
         raise Exception("waitTillComplete is False, to get returnOutput set waitTillComplete to True")
     stdin = None if inData is None else sp.PIPE
@@ -46,6 +46,10 @@ def exeIt(cmd, returnOutput=True, waitTillComplete=True, sepBy=' ', inData=None,
       returnCode  : {errCode}
       pass        : {out}
       fail        : {err}
+      stderr      : {stderr}
+      stdin       : {stdin}
+      stdout      : {stdout}
+
       _____________________________________________________________________________________
       """)
     return cmd, errCode, out, err
