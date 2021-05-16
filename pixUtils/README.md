@@ -1,2 +1,0 @@
-# pixUtils
-common utility functions

@@ -2,6 +2,7 @@ import os
 import cv2
 import sys
 import shutil
+import random
 import logging
 import argparse
 import tempfile
@@ -22,7 +23,19 @@ try:
 except:
     pass
 
-np.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize, formatter={'float': lambda x: "{0:8.3f}".format(x)})
+np.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize, formatter={'float': lambda x: "{0:8.4f}".format(x)})
+
+
+def setSeed(seed=4487):
+    # print(f"setting random seed to {seed}")
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+        torch.manual_seed(seed)
+    except:
+        print("skip setting torch seed")
+    return seed
 
 
 def getArgs(**kwArgs):
@@ -94,7 +107,7 @@ def moveCopy(src, des, op, isFile, rm):
 
 
 def dirop(*dirpath, **kw):
-    mkdir, remove, mode = kw.get('mkdir', True), kw.get('rm'), kw.get('mode', 0o777)
+    mkdir, remove, mode, isFile = kw.get('mkdir', True), kw.get('rm'), kw.get('mode', 0o777), kw.get('isFile', None)
     copyTo, moveTo = kw.get('cp'), kw.get('mv')
 
     assert kw.get('remove') is None
@@ -102,7 +115,8 @@ def dirop(*dirpath, **kw):
     assert kw.get('moveTo') is None
 
     path = str2path(*dirpath)
-    isFile = os.path.splitext(path)[-1]
+    if isFile is None:
+        isFile = os.path.splitext(path)[-1]
     if copyTo or moveTo:
         if not exists(path):
             raise Exception(f'''Fail src: {path}

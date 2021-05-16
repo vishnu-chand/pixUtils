@@ -7,6 +7,7 @@ from collections import defaultdict
 
 class ThreadBatch:
     def __init__(self, prcs, nConsumer, batchSize, qSize=200):
+        assert type(prcs) == list
         self.jobs = defaultdict(list)
         self.batchSize = batchSize
         self.q = Queue(maxsize=qSize)
@@ -67,3 +68,19 @@ class ThreadBatchDummy:
         return
 
 
+if __name__ == '__main__':
+    from pixUtils import *
+    # from pixUtils.torchCommon import *
+
+    def prcs(img):
+        # img = cv2.imread('')
+        # img += 1
+        return img
+    tb = ThreadBatch([prcs], 2, 2)
+    tik = clk()
+    for jid in range(4):
+        for _ in range(100):
+            tb.submit(jid, img=jid)
+    for jid in range(4):
+        tb.isDone(jid)
+    print("83  threadBatch tik.tok() ", tik.tok("").last())

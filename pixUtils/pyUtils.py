@@ -89,7 +89,12 @@ class DotDict(dict):
         keys = list(self.keys())
         nSpace = len(max(keys, key=lambda x: len(x))) + 2
         keys = sorted(keys)
-        data = [f'{key:{nSpace}}: {self[key]},' for key in keys]
+        data = []
+        for key in keys:
+            val = self[key]
+            if type(val) == str:
+                val = f"'{val}'"
+            data.append(f'{key:{nSpace}}: {val},')
         data = '{\n%s\n}' % '\n'.join(data)
         return data
 
@@ -130,11 +135,20 @@ def writeYaml(yamlPath, jObjs):
         yaml.dump(yaml.safe_load(jObjs), book, default_flow_style=False, sort_keys=False)
 
 
-def readPkl(pklPath, defaultData=None):
-    if not os.path.exists(pklPath):
-        print("loading pklPath: ", pklPath)
-        return defaultData
-    return pickle.load(open(pklPath, 'rb'))
+def readPkl(pklPath, defaultData=None, writePkl=True, rm=False):
+    if rm:
+        dirop(pklPath, rm=True)
+    pklExists = os.path.exists(pklPath)
+    if pklExists:
+        print(f"loading pklPath: {pklPath}")
+        defaultData = pickle.load(open(pklPath, 'rb'))
+    elif callable(defaultData):
+        print(f"executing: {defaultData}")
+        defaultData = defaultData()
+    if defaultData is not None and writePkl and not pklExists:
+        print(f"pkling defaultData: {pklPath}")
+        pickle.dump(defaultData, open(dirop(pklPath), 'wb'))
+    return defaultData
 
 
 def writePkl(pklPath, objs):
@@ -258,6 +272,15 @@ def maskIt(roi, roiMask):
     return cv2.bitwise_and(roi, roiMask)
 
 
+def dispVars(names, kwargs, end='\n'):
+    print(f"_____________________{names}_____________________")
+    for k, v in kwargs.items():
+        try:
+            print(f"{k}={v},", end=end)
+        except Exception as exp:
+            pass
+
+
 # def imHconcat(imgs, sizeRC, interpolation=cv2.INTER_LINEAR):
 #     rh, rw = sizeRC[:2]
 #     res = []
@@ -296,7 +319,7 @@ class VideoWrtier:
         if self.__vWriter is None:
             if self.__size is None:
                 self.__size = tuple(img.shape[:2])
-            self.__vWriter = cv2.VideoWriter(self.path, self.__codec, self.fps, self.__size[::-1])
+            self.__vWriter = cv2.VideoWriter(dirop(self.path), self.__codec, self.fps, self.__size[::-1])
         if tuple(img.shape[:2]) != self.__size:
             img = cv2.resize(img, self.__size[::-1])
         if len(img.shape) == 2:
@@ -304,6 +327,9 @@ class VideoWrtier:
         self.__vWriter.write(img)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self):
         if self.__vWriter:
             self.__vWriter.release()
         else:
@@ -318,7 +344,10 @@ class clk:
         self.__roundBy = roundBy
         self.__toks = [["start", dt.now()]]
 
-    def tok(self, name):
+    def tok(self, name=None):
+        if name is None:
+            n = len(self.__toks)
+            name = f'{n}_{n+1}'
         self.__toks.append([name, dt.now()])
         return self
 
@@ -333,7 +362,7 @@ class clk:
             datas = datas.astype(str)
         return str(datas)
 
-    def get(self, useNumpy=True):
+    def get(self, returnType='pd'):
         toks = self.__toks
         _, stik = toks[0]
         datas = []
@@ -343,9 +372,13 @@ class clk:
             tlap = self.__getLap(stik, tok)
             data = name, 1 / lap, lap, tlap, 1 / tlap
             datas.append(data)
-        if useNumpy:
-            datas = np.array(datas)
-        return cols, datas
+        if returnType == 'np':
+            datas = cols, np.array(datas)
+        elif returnType == 'pd':
+            datas = pd.DataFrame(datas, columns=cols)
+        elif returnType == 'list':
+            datas = cols, datas
+        return datas
 
     def last(self, roundBy=None):
         roundBy = roundBy or self.__roundBy
@@ -385,14 +418,23 @@ def showImg(winname='output', imC=None, delay=None, windowConfig=0, nRow=None, c
         if type(imC) is not list:
             imC = [imC]
         imC = photoframe(imC, nRow=nRow, chFirst=chFirst)
+        if not useMatplot:
+            try:
+                cv2.namedWindow(winname, windowConfig)
+                cv2.imshow(winname, imC)
+            except Exception as exp:
+                if 'The function is not implemented' in str(exp):
+                    print(exp)
+                    print("forcing to use matplotlib")
+                    useMatplot = True
+                else:
+                    raise Exception(exp)
         if useMatplot:
             plt.imshow(imC)
             plt.show()
-        else:
-            cv2.namedWindow(winname, windowConfig)
-            cv2.imshow(winname, imC)
+        # else:
 
-    if delay is not None:
+    if not useMatplot and delay is not None:
         key = __wait(delay)
         return key
     return imC
@@ -412,23 +454,38 @@ def showImg(winname='output', imC=None, delay=None, windowConfig=0, nRow=None, c
 #         return 1
 #     return imC
 
-def prr(name, img):
-    import torch  # TODO remove this or add tf support
+def prr(name, img, showUnique):
+    try:
+        import torch  # TODO remove this or add tf support
+    except Exception as exp:
+        pass
     if type(img) == list:
         img = torch.stack(img)
     try:
-        mean, std = f'mean :\t{img.mean()}', f'std  :\t{img.std()}'
+        mean, std = img.mean(), img.std()
     except:
-        mean, std = f'mean :\t{img.float().mean()}', f'std  :\t{img.float().std()}'
-    data = f"""
-    ________________ {name} ________________
-            shape:\t{img.shape}
-            dtype:\t{img.dtype}
-            min  :\t{img.min()}
-            max  :\t{img.max()}
-            {mean}
-            {std}
-            """
+        mean, std = img.float().mean(), img.float().std()
+    dtype = str(img.dtype)
+    try:
+        dtype = f"{dtype}{img.device}"
+    except:
+        pass
+    unique = ''
+    if showUnique:
+        try:
+            unique = torch.unique(img)
+        except:
+            unique = np.unique(img)
+    # data = f"""
+    # ________________ {name} ________________
+    #         dtype:\t{img.dtype}
+    #         shape:\t{img.shape}
+    #         min  :\t{img.min()}
+    #         max  :\t{img.max()}
+    #         mean :\t{mean}
+    #         std  :\t{std}
+    #         """
+    data = f"{name}:\t\t{dtype} {list(img.shape)} [{img.min():6.3f} {img.max():6.3f}] [{mean:6.3f} {std:6.3f}] {unique}"
     print(data.strip())
 
 
@@ -553,7 +610,7 @@ def photoframe(imgs, rcsize=None, nRow=None, resize_method=cv2.INTER_LINEAR, fit
             rcsize = imgs[0].shape
         imrow, imcol = rcsize[:2]  # fetch first two vals
         nimgs = len(imgs)
-        nRow = int(np.ceil(nimgs ** .5)) if nRow is None else int(nRow)
+        nRow = int(np.ceil(nimgs ** .5)) if nRow is None else max(1, int(nRow))
         nCol = nimgs / nRow
         nCol = int(np.ceil(nCol + 1)) if (nRow * nCol) - nimgs else int(np.ceil(nCol))
         if fit:
@@ -567,6 +624,7 @@ def photoframe(imgs, rcsize=None, nRow=None, resize_method=cv2.INTER_LINEAR, fit
             rowimg = []
             for i, img in imggroup:
                 if img.dtype != np.uint8:
+                    print("warning float2img may not work properly")
                     img = float2img(img)
                 if asgray:
                     if len(img.shape) == 3:
@@ -589,10 +647,10 @@ def downloadDB(url, des, rename=''):
     dirop(des)
     downloadCmd = f'cd "{des}";'
     if not exists(url):
-        if url.startswith('git+ '):
-            downloadCmd += f'git clone "{url.lstrip("git+ ")}";'
-        elif url.startswith('gdrive+ '):
-            url = url.lstrip('gdrive+ ')
+        if url.startswith('git+'):
+            downloadCmd += f'git clone "{url.lstrip("git+").lstrip()}";'
+        elif url.startswith('gdrive+'):
+            url = url.lstrip('gdrive+').lstrip()
             if '/d/' in url:
                 gid = url
                 gid = gid.split('/d/')[1]
@@ -602,12 +660,12 @@ def downloadDB(url, des, rename=''):
                 gid = gid.split('id=')[1]
                 gid = gid.split('&')[0]
             downloadCmd += f'gdown https://drive.google.com/uc?id={gid};'
-        elif url.startswith('youtube+ '):
-            downloadCmd += f"youtube-dl '{url.lstrip('youtube+ ')}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
-        elif url.startswith('wgetNoCertificate+ '):
-            downloadCmd += f'wget --no-check-certificate "{url.lstrip("wgetNoCertificate+ ")}";'
-        elif url.startswith('wget+ '):
-            downloadCmd += f'wget "{url.lstrip("wget+ ")}";'
+        elif url.startswith('youtube+'):
+            downloadCmd += f"youtube-dl '{url.lstrip('youtube+').lstrip()}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
+        elif url.startswith('wgetNoCertificate+'):
+            downloadCmd += f'wget --no-check-certificate "{url.lstrip("wgetNoCertificate+").lstrip()}";'
+        elif url.startswith('wget+'):
+            downloadCmd += f'wget "{url.lstrip("wget+").lstrip()}";'
         old = set(glob(f'{des}/*'))
         print("____________________________________________________________________________________________________________________")
         print(f"\n             {downloadCmd}\n")
@@ -663,13 +721,16 @@ def compareVersions(versions, compareBy, ovideoPlayer=None, putTitle=bboxLabel, 
         datas = []
         for ix, img in enumerate(imgs[1:], 1):
             res = []
+            score = 0
             res.append(putTitle(imgs[0].copy(), basename(vpaths[0])))
             res.append(putTitle(imgs[ix].copy(), basename(vpaths[ix])))
             if showDiff:
                 diff = cv2.absdiff(imgs[0], img)
                 res.append(diff)
-                res.append(cv2.inRange(diff.min(axis=-1), 10, 300))
-            datas.append(res)
+                diff = cv2.inRange(diff.min(axis=-1), 10, 300)
+                score = diff.mean()
+                res.append(diff)
+            datas.append([score, res])
         yield datas
 
 
@@ -686,3 +747,68 @@ def rglob(p1, p2=None):
         return res
     else:
         return glob(p1)
+
+
+def gitPull(root, commitId):
+    # git checkout 80a57dd
+    if not os.getcwd().startswith('/home/ec2-user'):
+        raise Exception("pull works only on ec2-user")
+    sepBy = '; '
+    dirop(root)
+    if commitId.startswith('git clone'):
+        gitClone(root, commitId)
+    else:
+        cmd = f"""
+cd {root}
+git reset --hard {commitId}
+        """
+        exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=True)
+    print("15 gitPull main : ", );quit()
+
+
+def gitPush(root, message, gitAdds=None, cloneCmd=None, removeCache=True, stop=False):
+    if not gitAdds:
+        raise Exception("specify folders to git add")
+    sepBy = '; '
+    tempRoot = None
+    if cloneCmd:
+        tempRoot = dirop(f'/tmp/{getTimeStamp()}/{basename(root)}')
+        gitClone(tempRoot, cloneCmd)
+        for gitAdd in gitAdds:
+            src, des = join(root, gitAdd), join(tempRoot, gitAdd)
+            if gitAdd == '.gitignore':
+                Path(des).write_text(Path(src).read_text())
+            else:
+                dirop(src, cp=des, rm=True)
+        root = tempRoot
+    if removeCache:
+        cmd = f'''
+cd {root}
+git rm -r --cached .
+            '''
+        exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=False)
+    gitAdds.insert(0, 'echo')
+    gitAdds = f"{sepBy}git add ".join(gitAdds)
+    cmd = f'''
+cd {root}
+{gitAdds}
+git commit -a -m "{message}"
+git push
+    '''
+    cmd, errCode, out, err = exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=True)
+    commitId = err.split('..')[-1].split()[0]
+    if tempRoot:
+        dirop(tempRoot, rm=True, mkdir=False)
+    if stop:
+        print("787 gitPush pyUtils commitId: ", commitId);quit()
+    return commitId
+
+
+def gitClone(root, cloneCmd):
+    sepBy = '; '
+    dirop(root, rm=True)
+    cmd = f'''
+cd {dirname(root)}
+{cloneCmd}
+    '''
+    exeIt(cmd, sepBy=sepBy, )

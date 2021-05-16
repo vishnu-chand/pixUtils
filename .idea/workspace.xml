@@ -1,7 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="925547ec-064d-4cda-90fd-41bea3710c05" name="Default Changelist" comment="" />
+    <list default="true" id="925547ec-064d-4cda-90fd-41bea3710c05" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/pixUtils.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/pixUtils.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pixUtils/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/pixUtils/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pixUtils/bashIt.py" beforeDir="false" afterPath="$PROJECT_DIR$/pixUtils/bashIt.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pixUtils/pyUtils.py" beforeDir="false" afterPath="$PROJECT_DIR$/pixUtils/pyUtils.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pixUtils/torchCommon.py" beforeDir="false" afterPath="$PROJECT_DIR$/pixUtils/torchCommon.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -21,12 +29,69 @@
     <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
     <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
     <property name="WebServerToolWindowFactoryState" value="true" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$/../pixUtils (copy)/pixUtils" />
+    <property name="credentialsType com.jetbrains.python.remote.PyCreateRemoteInterpreterDialog$PyCreateRemoteSdkForm" value="Web Deployment" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
     <property name="node.js.detected.package.eslint" value="true" />
     <property name="node.js.path.for.package.eslint" value="project" />
     <property name="node.js.selected.package.eslint" value="(autodetect)" />
-    <property name="settings.editor.selected.configurable" value="aws" />
+    <property name="settings.editor.selected.configurable" value="com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable" />
     <property name="two.files.diff.last.used.folder" value="$PROJECT_DIR$/../pixUtils (copy)/pixUtils" />
+  </component>
+  <component name="RunManager" selected="Python.startPycharm">
+    <configuration name="pycharmFix" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="pixUtils" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/man" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/man/pycharmFix.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="startPycharm" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="pixUtils" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="$USER_HOME$/miniconda3/envs/gputf/bin/python" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/man" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/man/startPycharm.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python.pycharmFix" />
+      <item itemvalue="Python.startPycharm" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.startPycharm" />
+        <item itemvalue="Python.pycharmFix" />
+      </list>
+    </recent_temporary>
   </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
@@ -43,6 +108,77 @@
       <workItem from="1611339316554" duration="3000" />
       <workItem from="1611930398001" duration="669000" />
       <workItem from="1611938497176" duration="831000" />
+      <workItem from="1612560980884" duration="680000" />
+      <workItem from="1612562149913" duration="549000" />
+      <workItem from="1612563732334" duration="538000" />
+      <workItem from="1612589601979" duration="90000" />
+      <workItem from="1612589755976" duration="121000" />
+      <workItem from="1612589907017" duration="28000" />
+      <workItem from="1612589985124" duration="33000" />
+      <workItem from="1612590052730" duration="194000" />
+      <workItem from="1612591230480" duration="150000" />
+      <workItem from="1612591391823" duration="2000" />
+      <workItem from="1613304290878" duration="4353000" />
+      <workItem from="1613321911536" duration="408000" />
+      <workItem from="1613323555175" duration="491000" />
+      <workItem from="1613325005967" duration="32000" />
+      <workItem from="1613325115644" duration="5000" />
+      <workItem from="1613325141618" duration="3000" />
+      <workItem from="1613325168283" duration="644000" />
+      <workItem from="1613325823580" duration="3155000" />
+      <workItem from="1613332693545" duration="167000" />
+      <workItem from="1613332870896" duration="9000" />
+      <workItem from="1613332920424" duration="83000" />
+      <workItem from="1613333032377" duration="741000" />
+      <workItem from="1613333885871" duration="66000" />
+      <workItem from="1613334046464" duration="140000" />
+      <workItem from="1613334254438" duration="48000" />
+      <workItem from="1613334312181" duration="24000" />
+      <workItem from="1613334402690" duration="41000" />
+      <workItem from="1613334513292" duration="59000" />
+      <workItem from="1613334595062" duration="19000" />
+      <workItem from="1613364535893" duration="804000" />
+      <workItem from="1613365351810" duration="38000" />
+      <workItem from="1613365404651" duration="19000" />
+      <workItem from="1613365435689" duration="169000" />
+      <workItem from="1613365631215" duration="111000" />
+      <workItem from="1613365754712" duration="316000" />
+      <workItem from="1613366082797" duration="162000" />
+      <workItem from="1613366259372" duration="107000" />
+      <workItem from="1613366381283" duration="607000" />
+      <workItem from="1613367422959" duration="107000" />
+      <workItem from="1613367549093" duration="81000" />
+      <workItem from="1613367684038" duration="31000" />
+      <workItem from="1613367743244" duration="387000" />
+      <workItem from="1613368169770" duration="49000" />
+      <workItem from="1613368283224" duration="65000" />
+      <workItem from="1613368385290" duration="43000" />
+      <workItem from="1613372500776" duration="10000" />
+      <workItem from="1613372531966" duration="50000" />
+      <workItem from="1613373204878" duration="45000" />
+      <workItem from="1613385363092" duration="28000" />
+      <workItem from="1613410148530" duration="60000" />
+      <workItem from="1613433143749" duration="15000" />
+      <workItem from="1613433341419" duration="29000" />
+      <workItem from="1613435100761" duration="256000" />
+      <workItem from="1613435610009" duration="56000" />
+      <workItem from="1613462346382" duration="69000" />
+      <workItem from="1613462490497" duration="16000" />
+      <workItem from="1613462569320" duration="16000" />
+      <workItem from="1613462745710" duration="72000" />
+      <workItem from="1613462887106" duration="248000" />
+      <workItem from="1613463185467" duration="57000" />
+      <workItem from="1613463274719" duration="69000" />
+      <workItem from="1613463375281" duration="121000" />
+      <workItem from="1613470922957" duration="53000" />
+      <workItem from="1613471000593" duration="3000" />
+      <workItem from="1613474233416" duration="14000" />
+      <workItem from="1613474702827" duration="11000" />
+      <workItem from="1613474876265" duration="14000" />
+      <workItem from="1613475738717" duration="4000" />
+      <workItem from="1613476701290" duration="10000" />
+      <workItem from="1613483303276" duration="4000" />
+      <workItem from="1613502432441" duration="11000" />
     </task>
     <task id="LOCAL-00001" summary="modified pytorchCommon">
       <created>1611930525138</created>
@@ -72,5 +208,9 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="modified pytorchCommon" />
     <option name="LAST_COMMIT_MESSAGE" value="modified pytorchCommon" />
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/pixUtils$startPycharm.coverage" NAME="startPycharm Coverage Results" MODIFIED="1613470947227" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/man" />
+    <SUITE FILE_PATH="coverage/pixUtils$pycharmFix.coverage" NAME="pycharmFix Coverage Results" MODIFIED="1612563885965" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/man" />
   </component>
 </project>
