@@ -1,30 +1,21 @@
-from abc import ABC
-
 import torch
 import random
 from torch import nn
 from pixUtils import *
-import albumentations as A
 import torch.nn.functional as F
-from skimage.filters import gaussian
-from albumentations.pytorch import ToTensorV2
-from torch.utils.data import Dataset, DataLoader, IterableDataset
+try:
+    import albumentations as A
+    from albumentations.pytorch import ToTensorV2
+except:
+    pass
+try:
+    from skimage.filters import gaussian
+except:
+    pass
+from torch.utils.data import Dataset, DataLoader, ConcatDataset, IterableDataset
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-torch.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize)
-
-bgColor = np.array([16, 196, 48], 'u1')
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-def changeBg(image, target, bgclr=bgColor, ignorePix=128):
-    target = target.astype('f4').copy()
-    if ignorePix is not None:
-        target[target == ignorePix] = 0.5
-    image = image[..., :3]
-    if len(target.shape) == 2:
-        target = target[..., None]
-    target = image * target + bgclr * (1 - target)
-    return target.astype(image.dtype)
+torch.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize, sci_mode=False)
 
 
 def Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), max_pixel_value=255.0, always_apply=True, p=1.0, reverse=False):
@@ -36,12 +27,14 @@ def Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), max_pixel_v
         return A.Normalize(mean=mean, std=std, max_pixel_value=max_pixel_value, always_apply=always_apply, p=p)
 
 
-def img2torch(x, device):
+def img2torch(x, device, normalize=None):
+    normalize = normalize or Normalize()
     if type(x) == list:
         x = np.array(x)
-    x = torch.from_numpy(x)
+    x = normalize(image=x)['image']
+    x = torch.from_numpy(x).to(device)
     x = x.permute(2, 0, 1) if len(x.shape) == 3 else x.permute(0, 3, 1, 2)
-    return x.to(device)
+    return x
 
 
 def mask2torch(x, device):
@@ -56,7 +49,8 @@ def mask2torch(x, device):
     return x.to(device)
 
 
-def torch2img(x, normalize=Normalize(reverse=True), float2img=True):
+def torch2img(x, normalize=None, float2img=True):
+    normalize = normalize or Normalize(reverse=True)
     nCh = len(x.shape)
     if nCh == 4:
         x = x.permute(0, 2, 3, 1)
@@ -71,11 +65,6 @@ def torch2img(x, normalize=Normalize(reverse=True), float2img=True):
 
 
 def torch2mask(x, dtype='f4'):
-    # nCh = len(x.shape)
-    # if nCh == 4:
-    #     x = torch.squeeze(x, dim=1)
-    # if nCh == 3:
-    # x = x[0]
     if isinstance(x, torch.Tensor):
         x = x.detach().cpu().numpy()
         if dtype is not None:
@@ -83,144 +72,160 @@ def torch2mask(x, dtype='f4'):
     return x
 
 
-def weightFreeze(model, freezes=None, unfreezes=None, freezeBn=(), disp=False):
-    if freezes is not None:
-        if freezes == 'all':
-            print("freezing all layers")
-            for name, weights in model.named_parameters():
-                weights.requires_grad = False
-        else:
-            for name, weights in model.named_parameters():
-                for lname in freezes:
-                    if lname in name:
-                        print(f"freezing: {name}")
-                        weights.requires_grad = False
-    elif unfreezes is not None:
-        if unfreezes == 'all':
-            print("unfreezing all layers")
-            for name, weights in model.named_parameters():
-                weights.requires_grad = True
-        else:
-            for name, weights in model.named_parameters():
-                for lname in unfreezes:
-                    if lname in name:
-                        print(f"unfreezing: {name}")
-                        weights.requires_grad = True
-    elif freezeBn:
-        print(f"""freezing batch norm layers: {freezeBn}""")
-        for weights in model.modules():
-            for bnType in freezeBn:
-                if isinstance(weights, bnType):
-                    weights.eval()
-                    # dir2(weights)
-                    # weights.weight.requires_grad = False
-                    # weights.bias.requires_grad = False
-    else:
-        print("_____________________________________________________________")
-        for name, weights in model.named_parameters():
-            print(f"{weights.requires_grad}\t\t{name}")
-        print("_____________________________________________________________")
-        for weights in model.modules():
-            name = str(weights).replace('\n', '')
-            print(f"{weights.training}\t\t{name}")
+def ckpt2pth(ckptPath, pthPath, model=None, lModel=None):
+    if exists(pthPath):
+        raise Exception(f"already exists: {pthPath}")
+    if lModel is None:
+        class DummyLit(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = model
+        lModel = DummyLit()
+    ckpt = torch.load(ckptPath, map_location='cpu')
+    lModel.load_state_dict(ckpt['state_dict'], strict=True)
+    torch.save(lModel.model.state_dict(), pthPath)
+    print(f"""conversion of 
+            {ckptPath}
+             to 
+             {pthPath}
+            completed
+                """)
 
 
-def loadWeights(model, weights, layerMap=None, debug=None, wkey=None):
-    def weight_init(m):
-        import torch.nn.init as init
-        '''
-        Usage:
-            model = Model()
-            model.apply(weight_init)
-        '''
-        if isinstance(m, nn.Conv1d):
-            init.normal_(m.weight.data)
-            if m.bias is not None:
-                init.normal_(m.bias.data)
-        elif isinstance(m, nn.Conv2d):
-            init.xavier_normal_(m.weight.data)
-            if m.bias is not None:
-                init.normal_(m.bias.data)
-        elif isinstance(m, nn.Conv3d):
-            init.xavier_normal_(m.weight.data)
-            if m.bias is not None:
-                init.normal_(m.bias.data)
-        elif isinstance(m, nn.ConvTranspose1d):
-            init.normal_(m.weight.data)
-            if m.bias is not None:
-                init.normal_(m.bias.data)
-        elif isinstance(m, nn.ConvTranspose2d):
-            init.xavier_normal_(m.weight.data)
-            if m.bias is not None:
-                init.normal_(m.bias.data)
-        elif isinstance(m, nn.ConvTranspose3d):
-            init.xavier_normal_(m.weight.data)
-            if m.bias is not None:
-                init.normal_(m.bias.data)
-        elif isinstance(m, nn.BatchNorm1d):
-            init.normal_(m.weight.data, mean=1, std=0.02)
-            init.constant_(m.bias.data, 0)
-        elif isinstance(m, nn.BatchNorm2d):
-            init.normal_(m.weight.data, mean=1, std=0.02)
-            init.constant_(m.bias.data, 0)
-        elif isinstance(m, nn.BatchNorm3d):
-            init.normal_(m.weight.data, mean=1, std=0.02)
-            init.constant_(m.bias.data, 0)
-        elif isinstance(m, nn.Linear):
-            init.xavier_normal_(m.weight.data)
+def setLearningRate(model, lr2name, verbose=True):
+    '''
+lr2name = defaultdict(list)
+for n, w in model.named_parameters():
+    print(n)
+    lr2name[0.01].append(n)
+print("________________________________________")
+for n, m in model.named_modules():
+    a = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+         nn.SyncBatchNorm, nn.LayerNorm, nn.GroupNorm, nn.LocalResponseNorm,
+         nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d)
+    if isinstance(m, a):
+        print(n)
+        lr2name['freezeBN'].append(n)
+model, lrParams = setLearningRate(model, lr2name=lr2name, verbose=True)
+    '''
+    if verbose:
+        for lr, name in lr2name.items():
+            print(lr, name)
+
+    name2lr = {}
+    for lr, ns in lr2name.items():
+        for n in ns:
+            name2lr[n] = lr
+
+    lrParams = [name2lr[n] for n, w in model.named_modules() if name2lr.get(n) is not None]
+    if lrParams:
+        for moduleName, module in model.named_modules():
+            if name2lr.get(moduleName, '').lower() == 'freezebn':
+                module.eval()
+                module.requires_grad_(False)
+
+    lrParams = [name2lr[n] for n, w in model.named_parameters() if name2lr.get(n) is not None]
+    if lrParams:
+        lrParams = [dict(params=w, lr=name2lr[n]) for n, w in model.named_parameters()]
+    return model, lrParams
+
+
+def weight_init(m):
+    import torch.nn.init as init
+    '''
+    Usage:
+        model = Model()
+        model.apply(weight_init)
+    '''
+    if isinstance(m, nn.Conv1d):
+        init.normal_(m.weight.data)
+        if m.bias is not None:
             init.normal_(m.bias.data)
-        elif isinstance(m, nn.LSTM):
-            for param in m.parameters():
-                if len(param.shape) >= 2:
-                    init.orthogonal_(param.data)
-                else:
-                    init.normal_(param.data)
-        elif isinstance(m, nn.LSTMCell):
-            for param in m.parameters():
-                if len(param.shape) >= 2:
-                    init.orthogonal_(param.data)
-                else:
-                    init.normal_(param.data)
-        elif isinstance(m, nn.GRU):
-            for param in m.parameters():
-                if len(param.shape) >= 2:
-                    init.orthogonal_(param.data)
-                else:
-                    init.normal_(param.data)
-        elif isinstance(m, nn.GRUCell):
-            for param in m.parameters():
-                if len(param.shape) >= 2:
-                    init.orthogonal_(param.data)
-                else:
-                    init.normal_(param.data)
+    elif isinstance(m, nn.Conv2d):
+        init.xavier_normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.Conv3d):
+        init.xavier_normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.ConvTranspose1d):
+        init.normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.ConvTranspose2d):
+        init.xavier_normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.ConvTranspose3d):
+        init.xavier_normal_(m.weight.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
+    elif isinstance(m, nn.BatchNorm1d):
+        init.normal_(m.weight.data, mean=1, std=0.02)
+        init.constant_(m.bias.data, 0)
+    elif isinstance(m, nn.BatchNorm2d):
+        init.normal_(m.weight.data, mean=1, std=0.02)
+        init.constant_(m.bias.data, 0)
+    elif isinstance(m, nn.BatchNorm3d):
+        init.normal_(m.weight.data, mean=1, std=0.02)
+        init.constant_(m.bias.data, 0)
+    elif isinstance(m, nn.Linear):
+        init.xavier_normal_(m.weight.data)
+        init.normal_(m.bias.data)
+    elif isinstance(m, nn.LSTM):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
+    elif isinstance(m, nn.LSTMCell):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
+    elif isinstance(m, nn.GRU):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
+    elif isinstance(m, nn.GRUCell):
+        for param in m.parameters():
+            if len(param.shape) >= 2:
+                init.orthogonal_(param.data)
+            else:
+                init.normal_(param.data)
 
+
+def loadWeights(model, weights, layerMap=None, debug=None):
     if not debug:
-        weight_init(model)
-    if type(weights) == str:
-        print(f"loading weights from path: {weights} and wkey: {wkey}")
-        weights = torch.load(weights)
-        if wkey:
-            weights = weights[wkey]
-    elif type(weights) in [list, tuple]:
-        print(f"downloading weights from torch hub: {weights}")
-        weights = torch.hub.load(*weights).state_dict()
+        model.apply(weight_init)
     if not isinstance(weights, OrderedDict):
         weights = weights.state_dict()
     if debug:
         print(pd.DataFrame([(k, v.shape, v.dtype) for k, v in weights.items()]))
+
     layerMap = layerMap or dict()
     newWeights = OrderedDict()
     for lname, lweight in weights.items():
         mapData = layerMap.get(lname)
         if mapData:
-            if len(mapData) == 1:
-                lname = mapData[0]  # name
-            elif len(mapData) == 2:
-                lname, lweight = mapData[0], lweight[mapData[1]]  # axis0
-            elif len(mapData) == 3:
-                lname, lweight = mapData[0], lweight[mapData[1]]
-                lweight = lweight[:, mapData[2]]  # axis1
+            lname, wCh, mCh, randWch, randMch = mapData.get('lname'), mapData.get('wCh'), mapData.get('mCh'), mapData.get('randWch'), mapData.get('randMch')  # name
+            print(f"modifying: {lname} [{lweight.shape}]",end=' ')
+            if wCh:
+                lweight = lweight[wCh]  # axis0
+            if mCh:
+                lweight = lweight[:, mCh]  # axis1
+            if randWch:
+                lweight[randWch] = torch.nn.init.xavier_uniform_(lweight[randWch])  # axis0
+            if randMch:
+                lweight[:, randMch] = torch.nn.init.xavier_uniform(lweight[:, randMch])  # axis1
+            print(f"to {lname} [{lweight.shape}]")
+
         newWeights[lname] = lweight
+
     if debug:
         print(pd.DataFrame([(k, v.shape, v.dtype) for k, v in newWeights.items()]))
     print("_________________________ loading weights _________________________")
@@ -242,17 +247,16 @@ def loadWeights(model, weights, layerMap=None, debug=None, wkey=None):
         quit()
 
 
-def describeModel(model, x=(384, 384), batchSize=8, device=device, summary=True, fps=False, remove=(), *a, **kw):
+def describeModel(model, inputs, batchSize, device=device, summary=True, fps=False, remove=(), *a, **kw):
     cols = ("Index", "Type", "Channels", "Kernel Shape", "Output Shape", "Params", "Mul Add")
     remove = [x.lower().replace(' ', '') for x in remove]
+    inputs = [x.to(device) for x in inputs]
     cols = [x for x in cols if x.lower().replace(' ', '') not in remove]
     removeIndex = False if "Index" in cols else True
     if not removeIndex:
         cols.pop(0)
-    x = np.array(x).round().astype(int)
-    r, c = x
 
-    def getSummary(model, x, *args, **kwargs):
+    def getSummary(model, inputs, *args, **kwargs):
         def get_names_dict(model):
             """Recursive walk to get names including path."""
             names, types = dict(), dict()
@@ -350,8 +354,7 @@ def describeModel(model, x=(384, 384), batchSize=8, device=device, summary=True,
         model.apply(register_hook)
         try:
             with torch.no_grad():
-                # model([x], [[dict(ori_shape=[384, 384], img_shape=[384, 384], pad_shape=[384, 384], flip=False)]], {}) # TODO vishnu
-                model(x) if not (kwargs or args) else model(x, *args, **kwargs)
+                model(*inputs)
         finally:
             for hook in hooks:
                 hook.remove()
@@ -363,10 +366,10 @@ def describeModel(model, x=(384, 384), batchSize=8, device=device, summary=True,
         df["Mul Add"] = pd.to_numeric(df["macs"], errors="coerce")
         df["Params"] = pd.to_numeric(df["params"], errors="coerce")
         df["Non-trainable params"] = pd.to_numeric(df["params_nt"], errors="coerce")
-        inData = [list(x.shape)] + df.out.tolist()[:-1]
+        # inData = [list(x.shape)] + df.out.tolist()[:-1]
         df = df.rename(columns=dict(ksize="Kernel Shape", out="Output Shape"))
-        df["Input Shape"] = inData
-        df["Channels"] = df[["Input Shape", "Output Shape"]].applymap(lambda x: x[1]).to_numpy().tolist()
+        # df["Input Shape"] = inData
+        df["Channels"] = df[["Output Shape"]].applymap(lambda x: x[1]).to_numpy().tolist()
         df_sum = df.sum()
         df.index.name = "Layer"
         if removeIndex:
@@ -396,26 +399,18 @@ def describeModel(model, x=(384, 384), batchSize=8, device=device, summary=True,
     print("model", type(model))
     df = None
     if summary:
-        __x = torch.zeros(2, next(model.parameters()).shape[1], r, c)
-        if device is not None:
-            __x = __x.to(device)
-        df = getSummary(model, __x, *a, **kw)
+        df = getSummary(model, inputs, *a, **kw)
     if fps:
-        __x = torch.zeros(batchSize, next(model.parameters()).shape[1], r, c)
-        if device is not None:
-            __x = __x.to(device)
-        mm = model
         for i in range(5):
-            mm(__x)
+            model(*inputs)
         nIter = 15
         tik = clk()
         for i in range(nIter):
-            mm(__x)
+            model(*inputs)
         tok = tik.tok("").last()
-        nFrame = nIter * __x.shape[0]
+        nFrame = nIter * batchSize
         fps = nFrame / tok
         print(f"""
-xShape: {__x.shape}
 fps   : {fps:9.6f}
 ms    : {1 / fps:9.6f}""")
     return df
@@ -430,58 +425,48 @@ def applyTransforms(transformers, data):
     return data
 
 
-def anyOneTransformer(transformers, p=.5):
-    def getTransformer(**data):
-        res = transformers[1]
-        if random.random() < p:
-            res = transformers[0]
-        return applyTransforms([res], data)
-
-    return getTransformer
-
-
 class GenImgData(Dataset):
-    def __init__(self, transformers, nData, returnKeys):
-        self.nData = nData
+    def __init__(self, readers, transformers, returnKeys):
+        i = 0
+        res = []
+        for t, n in readers:
+            res.append([t, i, i + n])
+            i += n
+        self.t = res
+        self.nItems = i
         self.transformers = transformers
         self.returnKeys = returnKeys
 
     def __len__(self):
-        return self.nData
+        return self.nItems
 
     def __getitem__(self, ix):
-        data = applyTransforms(self.transformers, data=dict(ix=ix))
+        for i in range(10):
+            data = self.doTransform(ix)
+            if data['ok']:
+                data = {k: data[k] for k in self.returnKeys}
+                return data
+            else:
+                ix = random.randint(0, self.nItems - 1)
+        data = self.doTransform(ix)
         return {k: data[k] for k in self.returnKeys}
 
-
-class GenVideoData(IterableDataset, ABC):
-    def __init__(self, yieldFn, transformers, nData, returnKeys):
-        self.yieldFn = yieldFn
-        self.transformers = transformers
-        self.returnKeys = returnKeys
-
-    def __iter__(self):
-        for data in self.yieldFn():
-            data = applyTransforms(self.transformers, data=data)
-            yield {k: data[k] for k in self.returnKeys}
-
-
-def GuideCrop(bbox_scale=2, p=.5):
-    def __guideCrop(image, mask, bbox, **data):
-        if bbox is not None and random.random() < p:
-            bbox = bboxScale(image, bbox, bbox_scale)
-            image = getSubImg(image, bbox)
-            mask = getSubImg(mask, bbox)
-        return dict(image=image, mask=mask)
-
-    return __guideCrop
+    def doTransform(self, ix):
+        for t, s, e in self.t:
+            if ix < e:
+                data = t(ix - s)
+                break
+        else:
+            raise
+        data = applyTransforms(self.transformers, data=data)
+        return data
 
 
 def image_copy_paste(img, paste_img, alpha, alphaWeight, blend=True, sigma=1):
     img_dtype = img.dtype
     if len(alpha.shape) == 3:
         alpha = alpha.max(axis=-1)
-    # alpha = np.float32(alpha != 0)
+    alpha = np.float32(alpha != 0)
     if blend:
         alpha = gaussian(alpha, sigma=sigma, preserve_range=True)
     if len(img.shape) == 3:
@@ -492,19 +477,18 @@ def image_copy_paste(img, paste_img, alpha, alphaWeight, blend=True, sigma=1):
     return img
 
 
-def CopyPaste(srcFn, pasteFn, minOverlay=.7, p=0.5):
+def CopyPaste(srcFn, pasteFn, pasteImPaths, minOverlay=.7, p=0.5):
     def __copyPaste(**data):
         src = applyTransforms(srcFn, data)
         image, mask = src['image'], src['mask']
         if random.random() < p:
-            pdata = next(data.pop('pastePlayer'), None)
-            if pdata:
-                fno, ftm, vname, data['image'], data['mask'] = pdata
-                paste = applyTransforms(pasteFn, data)
-                pasteImage, pasteMask = paste['image'], paste['mask']
-                f = pasteMask.astype('f4') / 255
-                image = image_copy_paste(image, pasteImage, f, blend=False, alphaWeight=min(1.0, minOverlay + random.random()))
-                mask = image_copy_paste(mask, pasteMask, f, blend=False, alphaWeight=1)
+            f = cv2.imread(random.choice(pasteImPaths), cv2.IMREAD_UNCHANGED)
+            data = dict(image=f[..., :3], mask=f[..., 3])
+            paste = applyTransforms(pasteFn, data)
+            pasteImage, pasteMask = paste['image'], paste['mask']
+            f = pasteMask.astype('f4') / 255
+            image = image_copy_paste(image, pasteImage, f, blend=True, alphaWeight=min(1.0, minOverlay + random.random()))
+            mask = image_copy_paste(mask, pasteMask, f, blend=False, alphaWeight=1)
         data['image'], data['mask'] = image, mask
         return data
 

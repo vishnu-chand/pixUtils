@@ -1,3 +1,5 @@
+import math
+import os
 import re
 import ast
 import time
@@ -43,8 +45,8 @@ class tqdm:
     from tqdm import tqdm
 
     def __init__(self, iterable=None, desc=None, total=None, leave=True, file=sys.stdout, ncols=None, mininterval=0.1, maxinterval=10.0,
-            miniters=None, ascii=None, disable=False, unit='it', unit_scale=False, dynamic_ncols=False, smoothing=0.3,
-            bar_format=None, initial=0, position=None, postfix=None, unit_divisor=1000, write_bytes=None, lock_args=None, gui=False, **kwargs):
+                 miniters=None, ascii=None, disable=False, unit='it', unit_scale=False, dynamic_ncols=False, smoothing=0.3,
+                 bar_format=None, initial=0, position=None, postfix=None, unit_divisor=1000, write_bytes=None, lock_args=None, gui=False, **kwargs):
         self.args = dict(
                 iterable=iterable, desc=desc, total=total, leave=leave, file=file, ncols=ncols, mininterval=mininterval, maxinterval=maxinterval,
                 miniters=miniters, ascii=ascii, disable=disable, unit=unit, unit_scale=unit_scale, dynamic_ncols=dynamic_ncols, smoothing=smoothing,
@@ -135,18 +137,23 @@ def writeYaml(yamlPath, jObjs):
         yaml.dump(yaml.safe_load(jObjs), book, default_flow_style=False, sort_keys=False)
 
 
-def readPkl(pklPath, defaultData=None, writePkl=True, rm=False):
-    if rm:
-        dirop(pklPath, rm=True)
+def readPkl(pklPath, defaultData=None, writePkl=True, rm=False, verbose=True):
+    pklPath = getPath(pklPath)
+    if rm and os.path.exists(pklPath):
+        print(f"deleting pklPath: {pklPath}")
+        os.remove(pklPath)
     pklExists = os.path.exists(pklPath)
     if pklExists:
-        print(f"loading pklPath: {pklPath}")
+        if verbose:
+            print(f"loading pklPath: {pklPath}")
         defaultData = pickle.load(open(pklPath, 'rb'))
     elif callable(defaultData):
-        print(f"executing: {defaultData}")
+        if verbose:
+            print(f"executing: {defaultData}")
         defaultData = defaultData()
     if defaultData is not None and writePkl and not pklExists:
-        print(f"pkling defaultData: {pklPath}")
+        if verbose:
+            print(f"pkling defaultData: {pklPath}")
         pickle.dump(defaultData, open(dirop(pklPath), 'wb'))
     return defaultData
 
@@ -165,16 +172,16 @@ def dir2(var):
     quit()
 
 
-# def checkAttr(obj, b, getAttr=False):
-#     a = set(vars(obj).keys())
-#     if getAttr:
-#         print(a)
-#     extra = a - a.intersection(b)
-#     if len(extra):
-#         raise Exception(extra)
+def float2img(img, min=None, max=None):
+    min = img.min() if min is None else min
+    max = img.max() if max is None else max
+    img = img.astype('f4')
+    img -= min
+    img /= max
+    return (255 * img).astype('u1')
 
 
-def bboxLabel(img, txt="", loc=(30, 45), color=(255, 255, 255), thickness=3, txtSize=1, txtFont=cv2.QT_FONT_NORMAL, txtThickness=3, txtColor=None, asTitle=None):
+def bboxLabel(img, txt="", loc=(30, 45), color=(255, 255, 255), thickness=3, txtSize=1, txtFont=cv2.QT_FONT_NORMAL, txtThickness=1, txtColor=None, asTitle=None):
     if len(loc) == 4:
         x0, y0, w, h = loc
         x0, y0, rw, rh = int(x0), int(y0), int(w), int(h)
@@ -200,14 +207,17 @@ def bboxLabel(img, txt="", loc=(30, 45), color=(255, 255, 255), thickness=3, txt
     return img
 
 
-def drawText(img, txt, loc, color=(255, 255, 255), txtSize=1, txtFont=cv2.FONT_HERSHEY_SIMPLEX, txtThickness=3, txtColor=None):
-    (w, h), baseLine = cv2.getTextSize(txt, txtFont, txtSize, txtThickness)
-    x0, y0 = int(loc[0]), int(loc[1])
-    if txtColor is None:
-        txtColor = (0, 0, 0)
-    cv2.rectangle(img, (x0, y0), (x0 + w, y0 - h - baseLine), color, -1)
-    cv2.putText(img, txt, (x0, y0 - baseLine), txtFont, txtSize, txtColor, txtThickness)
-    return img
+def bboxScale(img, bbox, scaleWH):
+    try:
+        sw, sh = scaleWH
+    except:
+        sw, sh = scaleWH, scaleWH
+    x, y, w, h = bbox
+    xc, yc = (x + w / 2, y + h / 2)
+    w *= sw
+    h *= sh
+    x, y = xc - w / 2, yc - h / 2
+    return frameFit(img, (x, y, w, h))
 
 
 def frameFit(img, bbox):
@@ -220,19 +230,6 @@ def frameFit(img, bbox):
     x1, y1 = x0 + int(width), y0 + int(height)
     x1, y1 = min(x1, imWidht), min(y1, imHeight)
     return np.array((x0, y0, max(0, x1 - x0), max(0, y1 - y0)))
-
-
-def bboxScale(img, bbox, scaleWH):
-    try:
-        sw, sh = scaleWH
-    except:
-        sw, sh = scaleWH, scaleWH
-    x, y, w, h = bbox
-    xc, yc = (x + w / 2, y + h / 2)
-    w *= sw
-    h *= sh
-    x, y = xc - w / 2, yc - h / 2
-    return frameFit(img, (x, y, w, h))
 
 
 def putSubImg(mainImg, subImg, loc, interpolation=cv2.INTER_CUBIC):
@@ -261,47 +258,7 @@ def getSubImg(im1, bbox):
         return img
 
 
-def maskIt(roi, roiMask):
-    """
-    apply mask on the image. It can accept both gray and colors image
-    """
-    if len(roi.shape) == 3 and len(roiMask.shape) == 2:
-        roiMask = cv2.cvtColor(roiMask, cv2.COLOR_GRAY2BGR)
-    elif len(roi.shape) == 2 and len(roiMask.shape) == 3:
-        roiMask = cv2.cvtColor(roiMask, cv2.COLOR_BGR2GRAY)
-    return cv2.bitwise_and(roi, roiMask)
-
-
-def dispVars(names, kwargs, end='\n'):
-    print(f"_____________________{names}_____________________")
-    for k, v in kwargs.items():
-        try:
-            print(f"{k}={v},", end=end)
-        except Exception as exp:
-            pass
-
-
-# def imHconcat(imgs, sizeRC, interpolation=cv2.INTER_LINEAR):
-#     rh, rw = sizeRC[:2]
-#     res = []
-#     for queryImg in imgs:
-#         qh, qw = queryImg.shape[:2]
-#         queryImg = cv2.resize(queryImg, (int(rw * qw / qh), int(rh)), interpolation=interpolation)
-#         res.append(queryImg)
-#     return cv2.hconcat(res)
-#
-#
-# def imVconcat(imgs, sizeRC, interpolation=cv2.INTER_LINEAR):
-#     rh, rw = sizeRC[:2]
-#     res = []
-#     for queryImg in imgs:
-#         qh, qw = queryImg.shape[:2]
-#         queryImg = cv2.resize(queryImg, (int(rw), int(rh * qh / qw)), interpolation=interpolation)
-#         res.append(queryImg)
-#     return cv2.vconcat(res)
-
-
-class VideoWrtier:
+class VideoWriter:
     """mjpg xvid mp4v"""
 
     def __init__(self, path, camFps, size=None, codec='mp4v'):
@@ -337,61 +294,6 @@ class VideoWrtier:
 
     def __enter__(self):
         return self
-
-
-class clk:
-    def __init__(self, roundBy=4):
-        self.__roundBy = roundBy
-        self.__toks = [["start", dt.now()]]
-
-    def tok(self, name=None):
-        if name is None:
-            n = len(self.__toks)
-            name = f'{n}_{n+1}'
-        self.__toks.append([name, dt.now()])
-        return self
-
-    def __repr__(self):
-        cols, datas = self.get(useNumpy=False)
-        try:
-            datas = pd.DataFrame(datas, columns=cols).round(self.__roundBy)
-        except:
-            print(cols)
-            datas = np.array(datas)
-            datas[:, 1:] = datas[:, 1:].astype(float).round(self.__roundBy)
-            datas = datas.astype(str)
-        return str(datas)
-
-    def get(self, returnType='pd'):
-        toks = self.__toks
-        _, stik = toks[0]
-        datas = []
-        cols = 'name', 'splitFps', 'splitSec', 'totalSec', 'totalFps'
-        for (_, tik), (name, tok) in zip(toks, toks[1:]):
-            lap = self.__getLap(tik, tok)
-            tlap = self.__getLap(stik, tok)
-            data = name, 1 / lap, lap, tlap, 1 / tlap
-            datas.append(data)
-        if returnType == 'np':
-            datas = cols, np.array(datas)
-        elif returnType == 'pd':
-            datas = pd.DataFrame(datas, columns=cols)
-        elif returnType == 'list':
-            datas = cols, datas
-        return datas
-
-    def last(self, roundBy=None):
-        roundBy = roundBy or self.__roundBy
-        toks = self.__toks
-        (_, tik), (_, tok) = toks[-2], toks[-1]
-        lap = self.__getLap(tik, tok)
-        return round(lap, roundBy)
-
-    @staticmethod
-    def __getLap(tik, tok):
-        lap = tok - tik
-        lap = lap.seconds + (lap.microseconds / 1000000)
-        return lap
 
 
 class Wait:
@@ -438,144 +340,6 @@ def showImg(winname='output', imC=None, delay=None, windowConfig=0, nRow=None, c
         key = __wait(delay)
         return key
     return imC
-
-
-# def pshowImg(winname=None, imC=None, delay=0):
-#     winname = str(winname)
-#     if imC is not None:
-#         if type(imC) is list:
-#             pass
-#         plt.imshow(imC)
-#     if delay is not None:
-#         if delay == 0:
-#             plt.show()
-#         # else:
-#         #     plt.pause(delay / 1000)
-#         return 1
-#     return imC
-
-def prr(name, img, showUnique):
-    try:
-        import torch  # TODO remove this or add tf support
-    except Exception as exp:
-        pass
-    if type(img) == list:
-        img = torch.stack(img)
-    try:
-        mean, std = img.mean(), img.std()
-    except:
-        mean, std = img.float().mean(), img.float().std()
-    dtype = str(img.dtype)
-    try:
-        dtype = f"{dtype}{img.device}"
-    except:
-        pass
-    unique = ''
-    if showUnique:
-        try:
-            unique = torch.unique(img)
-        except:
-            unique = np.unique(img)
-    # data = f"""
-    # ________________ {name} ________________
-    #         dtype:\t{img.dtype}
-    #         shape:\t{img.shape}
-    #         min  :\t{img.min()}
-    #         max  :\t{img.max()}
-    #         mean :\t{mean}
-    #         std  :\t{std}
-    #         """
-    data = f"{name}:\t\t{dtype} {list(img.shape)} [{img.min():6.3f} {img.max():6.3f}] [{mean:6.3f} {std:6.3f}] {unique}"
-    print(data.strip())
-
-
-def getSubPlots(nrows=1, ncols=-1, axisOff=True, tight=True, figsize=(15, 15), sharex=False, sharey=False, squeeze=True, subplot_kw=None, gridspec_kw=None, **fig_kw):
-    if ncols != -1:
-        nimgs = nrows * ncols
-    else:
-        nimgs = nrows
-        nrows = int(np.ceil(nimgs ** .5))
-        ncols = int(nimgs / nrows)
-        ncols = ncols + 1 if (nrows * ncols) < nimgs else ncols
-
-    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize, sharex=sharex, sharey=sharey, squeeze=squeeze, subplot_kw=subplot_kw, gridspec_kw=gridspec_kw, **fig_kw)
-
-    if nrows == 1 and ncols == 1:
-        axs = np.array([axs])
-    axs = axs.ravel()
-    for ix, ax in enumerate(axs):
-        if ix < nimgs:
-            yield lambda x: ax.set_title(x, color='white'), ax
-        if axisOff:
-            ax.axis('off')
-    if tight:
-        plt.tight_layout()
-    if axisOff:
-        plt.axis('off')
-
-
-def zipIt(src, desZip, rm=False):
-    if not exists(src):
-        raise Exception(f'''Fail src: {src} \n\tnot found''')
-    if exists(desZip):
-        if rm:
-            os.remove(desZip)
-        else:
-            raise Exception(f'''Fail des: {desZip} \n\talready exists delete it before operation''')
-    desZip, zipExt = os.path.splitext(desZip)
-    if os.path.isfile(src):
-        tempDir = join(dirname(src), getTimeStamp())
-        if os.path.exists(tempDir):
-            raise Exception(f'''Fail tempDir: {tempDir} \n\talready exists delete it before operation''')
-        os.makedirs(tempDir)
-        shutil.copy(src, tempDir)
-        desZip = shutil.make_archive(desZip, zipExt[1:], tempDir)
-        shutil.rmtree(tempDir, ignore_errors=True)
-    else:
-        desZip = shutil.make_archive(desZip, zipExt[1:], src)
-    return desZip
-
-
-def unzipIt(src, desDir, rm=False):
-    if not exists(src):
-        raise Exception(f'''Fail src: {src} \n\tnot found''')
-    if os.path.splitext(desDir)[-1]:
-        raise Exception(f'''Fail desDir: {desDir} \n\tshould be folder''')
-    tempDir = join(dirname(desDir), getTimeStamp())
-    shutil.unpack_archive(src, tempDir)
-    if not exists(desDir):
-        os.makedirs(desDir)
-    for mvSrc in os.listdir(tempDir):
-        mvSrc = join(tempDir, mvSrc)
-        mvDes = join(desDir, basename(mvSrc))
-        if rm is True and exists(mvDes):
-            if os.path.isfile(mvDes):
-                os.remove(mvDes)
-            else:
-                shutil.rmtree(mvDes, ignore_errors=True)
-        try:
-            shutil.move(mvSrc, desDir)
-        except Exception as exp:
-            shutil.rmtree(tempDir, ignore_errors=True)
-            raise Exception(exp)
-    shutil.rmtree(tempDir, ignore_errors=True)
-    return desDir
-
-
-# def float2img(img, pixmin=0, pixmax=255, dtype=0):
-#     '''
-#     convert oldFeature to (0 to 255) range
-#     '''
-#     return cv2.normalize(img, None, pixmin, pixmax, 32, dtype)
-
-
-def float2img(img, min=None, max=None):
-    min = img.min() if min is None else min
-    max = img.max() if max is None else max
-    img = img.astype('f4')
-    img -= min
-    img /= max
-    return (255 * img).astype('u1')
 
 
 def photoframe(imgs, rcsize=None, nRow=None, resize_method=cv2.INTER_LINEAR, fit=False, asgray=False, chFirst=False):
@@ -641,53 +405,325 @@ def photoframe(imgs, rcsize=None, nRow=None, resize_method=cv2.INTER_LINEAR, fit
         return cv2.vconcat(resimg)
 
 
-def downloadDB(url, des, rename=''):
-    url = [c.strip() for c in url.replace('\n', ';').split(';')]
-    url = ' '.join([c for c in url if c and not c.startswith('#')])
-    dirop(des)
-    downloadCmd = f'cd "{des}";'
-    if not exists(url):
+def prr(name, img, getVal=False):
+    torch, tf = None, None
+    try:
+        import torch  # TODO remove this or add tf support
+    except Exception as exp:
+        pass
+    try:
+        import tensorflow as tf
+    except:
+        pass
+
+    if type(img) == list:
+        if torch and isinstance(img[0], torch.Tensor):
+            img = torch.stack(img)
+        elif isinstance(img[0], np.ndarray):
+            img = np.array(img)
+        elif tf and isinstance(img[0], tf.Tensor):
+            img = tf.stack(img)
+        else:
+            raise Exception(f"data type of {type(img[0])} not implemented")
+    dtype = str(img.dtype)
+    try:
+        dtype = f"{dtype}{img.device[-5:]}"
+    except:
+        pass
+    unique = []
+    if getVal:
+        try:
+            unique = torch.unique(img.detach())
+        except:
+            unique = np.unique(img)
+    nUnique = len(unique)
+    step = max(1, nUnique // 20)
+    nEle = 1
+    for i in img.shape:
+        nEle *= i
+    shape = f"{nEle}={str(list(img.shape))}"
+    try:
+        data = f"{name:45s}:{dtype:15s} [{img.min():6.3f} {img.max():6.3f}] {shape:30s} [{nUnique} {unique[::step]}]"
+    except:
+        data = f"{name:45s}:{dtype:15s} [{np.min(img):6.3f} {np.max(img):6.3f}] {shape:30s} [{nUnique} {unique[::step]}]"
+    print(data.strip())
+
+
+def dispVars(names, kwargs):
+    x = pd.DataFrame(kwargs.items(), columns=['variable', 'val'])
+    nDelim = 0
+    res = []
+    for v in x.val:
+        v = str(v)
+        n = len(v)
+        if nDelim < n:
+            nDelim = n
+        res.append([n, v])
+    x['val'] = [f"{v}{' ' * (nDelim - n - 1)}" for n, v in res]
+    x.index = x['variable']
+    x.index.name = names
+    print(x[['val']])
+
+
+class clk:
+    def __init__(self, roundBy=4):
+        self.__roundBy = roundBy
+        self.__toks = [["start", dt.now()]]
+
+    def tok(self, name=None):
+        if name is None:
+            n = len(self.__toks)
+            name = f'{n}_{n + 1}'
+        self.__toks.append([name, dt.now()])
+        return self
+
+    def __repr__(self):
+        cols, datas = self.get()
+        try:
+            datas = pd.DataFrame(datas, columns=cols).round(self.__roundBy)
+        except:
+            print(cols)
+            datas = np.array(datas)
+            datas[:, 1:] = datas[:, 1:].astype(float).round(self.__roundBy)
+            datas = datas.astype(str)
+        return str(datas)
+
+    def get(self, returnType='pd'):
+        toks = self.__toks
+        _, stik = toks[0]
+        datas = []
+        cols = 'name', 'splitFps', 'splitSec', 'totalSec', 'totalFps'
+        for (_, tik), (name, tok) in zip(toks, toks[1:]):
+            lap = self.__getLap(tik, tok)
+            tlap = self.__getLap(stik, tok)
+            data = name, 1 / lap, lap, tlap, 1 / tlap
+            datas.append(data)
+        if returnType == 'np':
+            datas = cols, np.array(datas)
+        elif returnType == 'pd':
+            datas = pd.DataFrame(datas, columns=cols)
+        elif returnType == 'list':
+            datas = cols, datas
+        return datas
+
+    def last(self, roundBy=None):
+        roundBy = roundBy or self.__roundBy
+        toks = self.__toks
+        (_, tik), (_, tok) = toks[-2], toks[-1]
+        lap = self.__getLap(tik, tok)
+        return round(lap, roundBy)
+
+    @staticmethod
+    def __getLap(tik, tok):
+        lap = tok - tik
+        lap = lap.seconds + (lap.microseconds / 1000000)
+        return lap
+
+
+def zipIt(src, desZip, rm=False):
+    src, desZip = getPath(src), getPath(desZip)
+    if not exists(src):
+        raise Exception(f'''Fail src: {src} \n\tnot found''')
+    if exists(desZip):
+        if rm:
+            os.remove(desZip)
+        else:
+            raise Exception(f'''Fail des: {desZip} \n\talready exists delete it before operation''')
+    desZip, zipExt = os.path.splitext(desZip)
+    if os.path.isfile(src):
+        tempDir = join(dirname(src), getTimeStamp())
+        if os.path.exists(tempDir):
+            raise Exception(f'''Fail tempDir: {tempDir} \n\talready exists delete it before operation''')
+        os.makedirs(tempDir)
+        shutil.copy(src, tempDir)
+        desZip = shutil.make_archive(desZip, zipExt[1:], tempDir)
+        shutil.rmtree(tempDir, ignore_errors=True)
+    else:
+        desZip = shutil.make_archive(desZip, zipExt[1:], src)
+    return desZip
+
+
+def unzipIt(src, desDir=None, rm=False):
+    desDir = desDir or dirname(src)
+    src, desDir = getPath(src), getPath(desDir)
+    if not exists(src):
+        raise Exception(f'''Fail src: {src} \n\tnot found''')
+    if os.path.splitext(desDir)[-1]:
+        raise Exception(f'''Fail desDir: {desDir} \n\tshould be folder''')
+    tempDir = f"{desDir}/{getTimeStamp()}"
+    shutil.unpack_archive(src, tempDir)
+    if not exists(desDir):
+        os.makedirs(desDir)
+    for mvSrc in os.listdir(tempDir):
+        mvSrc = join(tempDir, mvSrc)
+        mvDes = join(desDir, basename(mvSrc))
+        if rm and exists(mvDes):
+            if os.path.isfile(mvDes):
+                os.remove(mvDes)
+            else:
+                shutil.rmtree(mvDes, ignore_errors=True)
+        try:
+            shutil.move(str(mvSrc), desDir)
+        except Exception as exp:
+            shutil.rmtree(tempDir, ignore_errors=True)
+            raise Exception(exp)
+    shutil.rmtree(tempDir, ignore_errors=True)
+    return desDir
+
+
+def getGdownCmd(downloadCmd, url):
+    # pip install bs4 lxml gdown
+    if 'Permission denied' in url:
+        import requests
+        try:
+            from bs4 import BeautifulSoup
+        except Exception as exp:
+            raise Exception(f"""{exp}
+
+            try: pip install bs4 lxml gdown
+            """)
+        for dirId in url.split('Permission denied: '):
+            dirId = dirId.split(' Maybe you need')[0]
+            if 'https' in dirId:
+                dirId = dirId.split('id=')[1]
+                r = requests.get(f'https://drive.google.com/drive/folders/{dirId}?usp=sharing')
+                for glink in str(BeautifulSoup(r.text, "lxml")).split('data-id="'):
+                    if 'data-target=' in glink:
+                        gid = glink.split('" data-target')[0]
+                        downloadCmd += f'gdown https://drive.google.com/uc?id={gid};'
+        for i in downloadCmd.split(';'):
+            print(i)
+    elif 'folder' in url:
+        import requests
+        try:
+            from bs4 import BeautifulSoup
+        except Exception as exp:
+            raise Exception(f"""{exp}
+
+                try: pip install bs4 lxml gdown
+                """)
+        r = requests.get(url)
+        for glink in str(BeautifulSoup(r.text, "lxml")).split('data-id="'):
+            if 'data-target=' in glink:
+                gid = glink.split('" data-target')[0]
+                downloadCmd += f'gdown https://drive.google.com/uc?id={gid};'
+    else:
+        if '/d/' in url:
+            gid = url
+            gid = gid.split('/d/')[1]
+            gid = gid.split('/')[0]
+        elif 'id=' in url:
+            gid = url
+            gid = gid.split('id=')[1]
+            gid = gid.split('&')[0]
+        downloadCmd += f'gdown https://drive.google.com/uc?id={gid};'
+    return downloadCmd
+
+
+def accessS3(src, des, isUpload, desName=None, rm=False, skipExe=False):
+    src, des = src.rstrip('/'), des.rstrip('/')
+    src = src if src != 's3:' else 's3:/'
+    des = des if des != 's3:' else 's3:/'
+    desName = basename(desName or src)
+    awsKey = f"export AWS_ACCESS_KEY_ID={os.environ['AWS_ACCESS_KEY_ID']};export AWS_SECRET_ACCESS_KEY={os.environ['AWS_SECRET_ACCESS_KEY']}"
+    if isUpload:
+        op, src, des = 'uploading', getPath(src), f'{des}/{desName}'
+    else:
+        op, des = 'downloading', f"{getPath(des)}/{desName}"
+    if rm and op == 'uploading':
+        recursive = '' if os.path.isfile(src) else '--recursive'
+        awsCmd = f'aws s3 rm {des} {recursive}'
+        print(f"deleting: {awsCmd}")
+        exeIt(f'{awsKey};{awsCmd}', returnOutput=' ', debug=' ')
+
+    awsCmd = f'aws s3 sync {src} {des}'
+    print(f'{op}: {awsCmd}')
+    exeIt(f'{awsKey};{awsCmd}', returnOutput='', debug='', skipExe=skipExe)
+
+
+def s3Sync(local, remote, isUpload, s3hash=''):
+    if not s3hash:
+        if not isUpload:
+            raise Exception("pass hash for downloading")
+        else:
+            s3hash = getTimeStamp()
+    print(f"""hash: 
+
+                    {s3hash}
+
+    """)
+    local, remote = local.rstrip('/'), remote.rstrip('/')
+    local = local if local != 's3:' else 's3:/'
+    remote = remote if remote != 's3:' else 's3:/'
+    remote = f"{remote}/{s3hash.strip()}_{basename(local)}"
+    op, src, des = 'downloading', remote, local
+    if isUpload:
+        op, src, des = 'uploading', local, remote
+    awsKey = f"export AWS_ACCESS_KEY_ID={os.environ['AWS_ACCESS_KEY_ID']};export AWS_SECRET_ACCESS_KEY={os.environ['AWS_SECRET_ACCESS_KEY']}"
+    awsCmd = f'aws s3 sync {src} {des}'
+    print(f"{op}: {awsCmd}")
+    exeIt(f'{awsKey};{awsCmd}', debug='', returnOutput='')
+
+
+def randomIt(x, dtype, asTorch=False, xmin=-100, xmax=100):
+    try:
+        x = np.random.randint(xmin, xmax, x, dtype)
+    except:
+        x = np.random.randint(xmin * 1000, xmax * 1000, x, 'i4').astype(dtype) / 1000
+    if asTorch:
+        import torch
+        x = torch.from_numpy(x)
+    return x
+
+
+def downloadDB(url, des, cache=None, unzip=True):
+    url = url.strip()
+    if cache and exists(getPath(cache)):
+        returnData = [getPath(cache)]
+    else:
+        des = getPath(des)
+        dirop(des)
+        done, downloadCmd = False, f'cd "{des}";'
+        old = set(glob(f'{des}/*'))
         if url.startswith('git+'):
             downloadCmd += f'git clone "{url.lstrip("git+").lstrip()}";'
         elif url.startswith('gdrive+'):
             url = url.lstrip('gdrive+').lstrip()
-            if '/d/' in url:
-                gid = url
-                gid = gid.split('/d/')[1]
-                gid = gid.split('/')[0]
-            elif 'id=' in url:
-                gid = url
-                gid = gid.split('id=')[1]
-                gid = gid.split('&')[0]
-            downloadCmd += f'gdown https://drive.google.com/uc?id={gid};'
+            downloadCmd = getGdownCmd(downloadCmd, url)
         elif url.startswith('youtube+'):
             downloadCmd += f"youtube-dl '{url.lstrip('youtube+').lstrip()}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
         elif url.startswith('wgetNoCertificate+'):
             downloadCmd += f'wget --no-check-certificate "{url.lstrip("wgetNoCertificate+").lstrip()}";'
         elif url.startswith('wget+'):
             downloadCmd += f'wget "{url.lstrip("wget+").lstrip()}";'
-        old = set(glob(f'{des}/*'))
+        elif url.startswith('s3down+'):
+            done = True
+            src = 's3down+'.join(url.split("s3down+")[1:]).lstrip()
+            accessS3(src.lstrip(), des, isUpload=False)
+        else:
+            raise Exception(f"unknown url format: {url}")
         print("____________________________________________________________________________________________________________________")
         print(f"\n             {downloadCmd}\n")
         print("____________________________________________________________________________________________________________________")
-        exeIt(downloadCmd, returnOutput=False, debug=True)
+        if not done:
+            exeIt(downloadCmd, returnOutput=False, debug=True)
         returnData = list(set(glob(f'{des}/*')) - old)
-    else:
-        returnData = [url]
     if len(returnData) != 1:
         print("skipping unzip no. file downloaded != 1")
         print("returnData:", returnData)
         return returnData
     returnData = returnData[0]
-    if rename:
-        returnData = dirop(returnData, mv=join(dirname(returnData), rename))
-    try:
-        print("unzip dataset")
-        print("zip: ", returnData)
-        returnData = unzipIt(returnData, f"{dirname(returnData)}/{basename(returnData).split('.')[0]}")
-    except Exception as exp:
-        print(f"skipping unzip: {returnData}")
-        print(exp)
+    if unzip:
+        try:
+            print("unzip dataset")
+            print("zip: ", returnData)
+            returnData = unzipIt(returnData)
+        except Exception as exp:
+            print(f"skipping unzip: {returnData}")
+            print(f"""
+Exception:
+        {exp}
+                """)
     print("returnData: ", returnData)
     return returnData
 
@@ -724,7 +760,11 @@ def compareVersions(versions, compareBy, ovideoPlayer=None, putTitle=bboxLabel, 
             score = 0
             res.append(putTitle(imgs[0].copy(), basename(vpaths[0])))
             res.append(putTitle(imgs[ix].copy(), basename(vpaths[ix])))
+            imgs[0] = putSubImg(imgs[0], np.zeros_like(imgs[0]), (0, 100, 200, 200))
+            imgs[0] = putSubImg(imgs[0], np.zeros_like(imgs[0]), (0, 0, 1200, 100))
             if showDiff:
+                img = putSubImg(img, np.zeros_like(img), (0, 100, 200, 200))
+                img = putSubImg(img, np.zeros_like(img), (0, 0, 1200, 100))
                 diff = cv2.absdiff(imgs[0], img)
                 res.append(diff)
                 diff = cv2.inRange(diff.min(axis=-1), 10, 300)
@@ -734,81 +774,191 @@ def compareVersions(versions, compareBy, ovideoPlayer=None, putTitle=bboxLabel, 
         yield datas
 
 
-def video2img(vpath, des):
-    for fno, ftm, img in videoPlayer(vpath):
-        cv2.imwrite(des.format(fno=fno), img)
+def getGitPushPull():
+    def gitClone(rootDir, cloneCmd, skipExe=False):
+        sepBy = '; '
+        dirop(rootDir)
+        cmd = f'''
+    cd {dirname(rootDir)}
+    {cloneCmd}
+        '''
+        exeIt(cmd, sepBy=sepBy, skipExe=skipExe)
 
-
-def rglob(p1, p2=None):
-    if p2:
-        res = []
-        for p1 in glob(p1):
-            res.extend(list(map(str, Path(p1).rglob(p2))))
-        return res
-    else:
-        return glob(p1)
-
-
-def gitPull(root, commitId):
-    # git checkout 80a57dd
-    if not os.getcwd().startswith('/home/ec2-user'):
-        raise Exception("pull works only on ec2-user")
-    sepBy = '; '
-    dirop(root)
-    if commitId.startswith('git clone'):
-        gitClone(root, commitId)
-    else:
-        cmd = f"""
-cd {root}
+    def gitPull(rootDir, commitId, skipExe=False, pullLocal=False):
+        if not pullLocal and not os.getcwd().startswith('/home/ec2-user'):
+            raise Exception("pull works only on ec2-user")
+        sepBy = '; '
+        dirop(rootDir)
+        if commitId.startswith('git clone'):
+            gitClone(rootDir, commitId)
+        else:
+            cmd = f"""
+cd {rootDir}
 git reset --hard {commitId}
         """
-        exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=True)
-    print("15 gitPull main : ", );quit()
+            exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=True, skipExe=skipExe)
+        print("15 gitPull main : ", )
+        quit()
 
-
-def gitPush(root, message, gitAdds=None, cloneCmd=None, removeCache=True, stop=False):
-    if not gitAdds:
-        raise Exception("specify folders to git add")
-    sepBy = '; '
-    tempRoot = None
-    if cloneCmd:
-        tempRoot = dirop(f'/tmp/{getTimeStamp()}/{basename(root)}')
-        gitClone(tempRoot, cloneCmd)
-        for gitAdd in gitAdds:
-            src, des = join(root, gitAdd), join(tempRoot, gitAdd)
-            if gitAdd == '.gitignore':
-                Path(des).write_text(Path(src).read_text())
-            else:
-                dirop(src, cp=des, rm=True)
-        root = tempRoot
-    if removeCache:
-        cmd = f'''
-cd {root}
+    def gitPush(rootDir, message, gitAdds=None, cloneCmd=None, removeCache=True, stop=False, skipExe=False):
+        if stop:
+            print(f"cloneCmd   :\t rm -rf /tmp/gitSync;mkdir -p /tmp/gitSync;cd /tmp/gitSync;git clone git@bitbucket.org:vishnuChand/aws.git")
+            print(f"pushCmd    :\t cd /tmp/gitSync/aws;git rm -r --cached .")
+            print(f"copyCmd    :\t cd /tmp/gitSync;cp -r {rootDir} .")
+            print(f"rmCacheCmd :\t cd /tmp/gitSync/aws;git add awsCode; git add docs; git add .gitignore;git commit -m {message};git push")
+        if not gitAdds:
+            raise Exception("specify folders to git add")
+        else:
+            for gitAdd in gitAdds:
+                if gitAdd.startswith(rootDir):
+                    raise Exception(f"""
+            {gitAdd} should be relative path from rootDir
+                eg: {basename(gitAdd)}
+                    """)
+        sepBy = '; '
+        tempRoot = None
+        forceAdd = ''
+        if cloneCmd:
+            # forceAdd = '-f '
+            tempRoot = dirop(f'/tmp/{getTimeStamp()}/{basename(rootDir)}')
+            gitClone(tempRoot, cloneCmd, skipExe=skipExe)
+            for gitAdd in gitAdds:
+                src, des = join(rootDir, gitAdd), join(tempRoot, gitAdd)
+                if gitAdd == '.gitignore':
+                    Path(des).write_text(Path(src).read_text())
+                elif gitAdd == 'LICENSE':
+                    Path(des).write_text(Path(src).read_text())
+                else:
+                    dirop(src, cpDir=tempRoot, rm=True)
+            rootDir = tempRoot
+        if removeCache:
+            cmd = f'''
+cd {rootDir}
 git rm -r --cached .
             '''
-        exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=False)
-    gitAdds.insert(0, 'echo')
-    gitAdds = f"{sepBy}git add ".join(gitAdds)
-    cmd = f'''
-cd {root}
+            exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=False, skipExe=skipExe)
+        gitAdds.insert(0, 'echo')
+        gitAdds = f"{sepBy}git add {forceAdd}".join(gitAdds)
+        cmd = f'''
+cd {rootDir}
 {gitAdds}
 git commit -a -m "{message}"
 git push
     '''
-    cmd, errCode, out, err = exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=True)
-    commitId = err.split('..')[-1].split()[0]
-    if tempRoot:
-        dirop(tempRoot, rm=True, mkdir=False)
-    if stop:
-        print("787 gitPush pyUtils commitId: ", commitId);quit()
-    return commitId
+        commitId = 'skipping exe'
+        out = exeIt(cmd, returnOutput=True, sepBy=sepBy, debug=True, skipExe=skipExe)
+        if out:
+            cmd, errCode, out, err = out
+            commitId = err.split('..')[-1].split()[0]
+            if tempRoot:
+                dirop(tempRoot, rm=True, mkdir=False)
+        if stop:
+            print("787 gitPush pyUtils commitId: ", commitId)
+            quit()
+        return commitId
+
+    return gitPush, gitPull, gitClone
 
 
-def gitClone(root, cloneCmd):
-    sepBy = '; '
-    dirop(root, rm=True)
-    cmd = f'''
-cd {dirname(root)}
-{cloneCmd}
-    '''
-    exeIt(cmd, sepBy=sepBy, )
+def getEc2PushPull(userName, pemPath):
+    ssh, scp = f'sudo ssh -i {pemPath}', f'sudo scp -i {pemPath}'
+    ec2 = f"{userName}@{getIp(' ')}"
+
+    def ec2push(src, remoteDesDir):
+        src, remoteDesDir = src.strip(), remoteDesDir.strip()
+        desDir = remoteDesDir
+        cmd = f'''
+        {ssh} {ec2} "mkdir -p {desDir}"
+        {scp} -r {src}/ {ec2}:{desDir}
+        {ssh} {ec2} "chmod -R 777 {desDir}"
+        echo;echo;echo {desDir};echo;echo
+        '''
+        cmd = ';'.join([c.strip() for c in cmd.split('\n')])[1:]
+        print(f'''
+        {cmd}
+        ''')
+
+    def ec2pull(remoteSrcs, desDir):
+        desDir = desDir.strip()
+        cpFiles = 'echo'
+        for r in remoteSrcs:
+            r = r.strip()
+            cpFiles += f'\n    {scp} -r {ec2}:{r} {desDir}/'
+        cmd = f'''
+        mkdir -p {desDir}
+        {cpFiles}
+        sudo chmod -R 777 {desDir}
+        echo;echo;echo {desDir};echo;echo
+        '''
+        cmd = ';'.join([c.strip() for c in cmd.split('\n')])[1:]
+        print(f"""
+        {cmd}
+        """)
+
+    return ec2push, ec2pull
+
+
+def getIp(ip, cfgPath='/home/hippo/Desktop'):
+    if ip == ' ':
+        ip = glob(f'{cfgPath}/*.aws*_')
+        if len(ip) != 1:
+            raise Exception(f"more than one active ip {ip}")
+        ip = basename(ip[0]).split('.aws')[0]
+        ip = ip.strip().replace('-', '.')
+    return ip
+
+
+def demonRunner(env, exeCmd, logPath, mainFn):
+    args = getArgs(startDemon=True)
+    if args['startDemon']:
+        exeCmd = f'{env};nohup {exeCmd} --startDemon=n >> {logPath} 2>&1 &'
+        print("________________________________________________________")
+        print(exeCmd)
+        print("________________________________________________________")
+        os.system(exeCmd)
+    else:
+        mainFn()
+
+
+def getCondaPkgs(pkgName=None, cacheDir='/home/hippo/miniconda3', rm=''):
+    def exeCmd(cmd):
+        cachePath = f'{cacheDir}/temp.txt'
+        os.system(f'{cmd} > {cachePath}')
+        with open(cachePath, 'r') as book:
+            lines = book.read().split('\n')
+        os.remove(cachePath)
+        lines = [line for line in lines if line]
+        return lines
+
+    def getPkgs():
+        lines = exeCmd('conda env list')
+        envs = [os.path.basename(line.split()[-1]) for line in lines[3:]]
+        print("envs", envs)
+        print("_______________________________________________")
+        res = defaultdict(list)
+        for env in tqdm(envs):
+            print(env)
+            lines = exeCmd(f'source $HOME/.bash_profile;eval "$(conda shell.bash hook)";conda activate {env};conda list')
+            for line in lines[3:]:
+                pkg, version = line.split()[:2]
+                if 'pypi' in line:
+                    msg = f'pip install {pkg}=={version}'
+                else:
+                    msg = f'conda install {pkg}=={version}'
+                res[pkg].append(msg)
+        return res
+
+    pkgs = readPkl(f'{cacheDir}/pkgs.pkl', lambda: getPkgs(), rm=rm)
+    if pkgName:
+        print('\n\n')
+        for v in pkgs[pkgName]:
+            print(v)
+        print('\n\n')
+    else:
+        for k, vs in pkgs.items():
+            print(f"________________{k}________________")
+            print('\n\n')
+            for v in vs:
+                print(v)
+                print()
+            print('\n\n')

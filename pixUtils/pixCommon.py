@@ -23,7 +23,8 @@ try:
 except:
     pass
 
-np.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize, formatter={'float': lambda x: "{0:8.4f}".format(x)})
+python = sys.executable
+np.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize, formatter=dict(float=lambda x: "{0:8.4f}".format(x)))
 
 
 def setSeed(seed=4487):
@@ -78,50 +79,48 @@ def imResize(img, sizeRC=None, scaleRC=None, interpolation=cv2.INTER_LINEAR):
     return img
 
 
-def str2path(*dirpath):
-    dirpath = list(map(str, dirpath))
-    path = join(*dirpath)
-    if path.startswith('home/ec2-user'):
-        path = join('/', path)
-    return path
+def getPath(p):
+    p = f"{p}".strip()
+    for fn in [os.path.expandvars, os.path.expanduser, os.path.abspath]:
+        p = fn(p)
+    return p
+
+
+def osSysMove(src, des):
+    os.system(f"mv {src} {des}")
 
 
 def moveCopy(src, des, op, isFile, rm):
-    des = str2path(des)
-    if isFile and not os.path.splitext(des)[-1]:
-        raise Exception(f'''Fail des: {des}
-                                    should be file''')
+    des = getPath(des)
+    desDir = dirname(des)
     if not rm and exists(des):
         raise Exception(f'''Fail des: {des}
-                                    already exists delete it before operation''')
+                                    already exists delete it or try different name
+                            eg: change dirop('{src}', cpDir='{desDir}', rm=False)
+                                to     dirop('{src}', cpDir='{desDir}', rm=True)
+                                or     dirop('{src}', cpDir='{desDir}', rm=False, desName='newName')
+                        ''')
     if isFile:
         if rm and exists(des):
             os.remove(des)
-        mkpath = dirname(des)
-        if not exists(mkpath):
-            os.makedirs(mkpath)
     else:
         if rm and exists(des):
             shutil.rmtree(des, ignore_errors=True)
+    mkpath = dirname(des)
+    if not exists(mkpath):
+        os.makedirs(mkpath)
     return op(src, des)
 
 
-def dirop(*dirpath, **kw):
-    mkdir, remove, mode, isFile = kw.get('mkdir', True), kw.get('rm'), kw.get('mode', 0o777), kw.get('isFile', None)
-    copyTo, moveTo = kw.get('cp'), kw.get('mv')
-
-    assert kw.get('remove') is None
-    assert kw.get('copyTo') is None
-    assert kw.get('moveTo') is None
-
-    path = str2path(*dirpath)
+def dirop(path, *, mkdir=True, rm=False, isFile=None, cpDir=None, mvDir=None, desName=None):
+    path = getPath(path)
     if isFile is None:
-        isFile = os.path.splitext(path)[-1]
-    if copyTo or moveTo:
+        isFile = os.path.isfile(path) if os.path.exists(path) else os.path.splitext(path)[-1]
+    if cpDir or mvDir:
         if not exists(path):
             raise Exception(f'''Fail src: {path}
                                             not found''')
-    elif remove is True and exists(path):
+    elif rm and exists(path):
         if isFile:
             os.remove(path)
         else:
@@ -129,11 +128,13 @@ def dirop(*dirpath, **kw):
     mkpath = dirname(path) if isFile else path
     if mkdir and not exists(mkpath) and mkpath:
         os.makedirs(mkpath)
-    if copyTo:
+    if cpDir:
         copy = shutil.copy if isFile else shutil.copytree
-        path = moveCopy(path, copyTo, copy, isFile, rm=remove)
-    elif moveTo:
-        path = moveCopy(path, moveTo, shutil.move, isFile, rm=remove)
+        desName = desName or path
+        path = moveCopy(path, f"{cpDir}/{basename(desName)}", copy, isFile, rm=rm)
+    elif mvDir:
+        desName = desName or path
+        path = moveCopy(path, f"{mvDir}/{basename(desName)}", osSysMove, isFile, rm=rm)
     return path
 
 
@@ -153,3 +154,59 @@ def videoPlayer(vpath, startSec=0.0, stopSec=np.inf):
             ftm = round(cam.get(cv2.CAP_PROP_POS_MSEC) / 1000, 2)
             yield fno, ftm, img
             fno += 1
+
+
+def rglob(p):
+    p = getPath(p)
+    ps = p.split('**')
+    roots, ps = ps[0], ps[1:]
+    if not ps:
+        return glob(roots)
+    else:
+        ps = '**' + '**'.join(ps)
+        res = []
+        for root in glob(roots):
+            for p in Path(root).glob(ps):
+                res.append(str(p))
+        return res
+
+
+def getTraceBack(searchPys=None):
+    errorTraceBooks = [basename(p) for p in searchPys or []]
+    otrace = traceback.format_exc()
+    trace = otrace.strip().split('\n')
+    msg = trace[-1]
+    done = False
+    traces = [line.strip() for line in trace if line.strip().startswith('File "')]
+    errLine = ''
+    for line in traces[::-1]:
+        if done:
+            break
+        meta = line.split(',')
+        pyName = basename(meta[0].split(' ')[1].replace('"', ''))
+        for book in errorTraceBooks:
+            if book == pyName:
+                done = True
+                msg = f"{msg}, {' '.join(meta[1:])}. {meta[0]}"
+                errLine = line
+                break
+    traces = '\n'.join(traces)
+    traces = f"""
+{msg}    
+
+
+{otrace}
+
+
+{traces}
+
+
+{errLine}
+"""
+    return msg, traces
+
+
+def filename(path, returnPath=False):
+    if not returnPath:
+        path = basename(path)
+    return os.path.splitext(path)[0]
