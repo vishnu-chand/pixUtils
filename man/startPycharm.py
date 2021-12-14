@@ -6,16 +6,29 @@ from glob import glob
 import subprocess as sp
 from os.path import basename, dirname
 
-
 bashEnv = os.getenv('bashEnv', 'export PATH=/home/ec2-user/miniconda3/bin:$PATH;eval "$(conda shell.bash hook)";conda activate gputf;')
 
 
-def renameFile(path, mv):
-    with open(path, 'r') as book:
-        data = book.read()
-    os.remove(path)
-    with open(mv, 'w') as book:
-        book.write(data)
+def renameFile(ips, oldPath, newPath):
+    ips = sorted(ips, key=lambda x: os.path.splitext(x)[1].split('_')[0].replace('.aws', ''))
+    datas = []
+    for path in ips:
+        with open(path, 'r') as book:
+            data = book.read()
+        datas.append(data)
+        os.remove(path)
+    for data, path in zip(datas, ips):
+        mv = path
+        if path == oldPath:
+            mv = newPath
+        p, e = os.path.splitext(mv)
+        if not oldPath.endswith('e') and path != oldPath:  # deactivate other running instance
+            e = f"{e.split('_')[0]}_1"
+        d, f = dirname(p), basename(p)
+        mv = f"{d}/{f.replace('-', '.')}{e}"
+        with open(mv, 'w') as book:
+            book.write(data)
+        time.sleep(.15)
 
 
 def decodeCmd(cmd, sepBy):
@@ -74,8 +87,8 @@ def getAwsId(ipPaths, endBy):
         if ipPath.endswith(endBy):
             with open(ipPath, 'r') as book:
                 awsId = book.read().strip().split('\n')[0]
-                awsName = basename(ipPath).split('.aws')[1][:-1]
-                data.append([ipPath, awsId, f".aws{awsName}"])
+                awsName = basename(ipPath).split('.aws')[1].split('_')[0]
+                data.append([ipPath, awsId, f".aws{awsName}_"])
     if data:
         if len(data) != 1:
             for d in data:
@@ -104,15 +117,16 @@ def opAws():
                 break
             except Exception as exp:
                 time.sleep(.3)
-        renameFile(src, mv=f'{dirname(src)}/{ip}{awsName}')
+        renameFile(ips, src, newPath=f'{dirname(src)}/{ip}{awsName}')
     elif endIp:
         src, awsId, awsName = endIp
         exeIt(f'aws ec2 stop-instances --instance-ids  {awsId} --force', debug=False)
-        renameFile(src, mv=f'{dirname(src)}/a{awsName}1')
+        renameFile(ips, src, newPath=f'{dirname(src)}/a{awsName}1')
     elif changeIp:
         src, awsId, awsName = changeIp
         ip = basename(src).split('.aws')[0].replace('_', '.').replace('-', '.')
-        renameFile(src, mv=f'{dirname(src)}/{ip}{awsName}')
+        renameFile(ips, src, newPath=f'{dirname(src)}/{ip}{awsName}')
+
 
 opAws()
 os.system('cd /home/hippo/SOFT/pycharm-professional/pycharm/bin;bash pycharm.sh')

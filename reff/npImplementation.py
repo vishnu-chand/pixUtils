@@ -1,10 +1,51 @@
-import torch
+import numpy as np
 from pixUtils import *
+
+
+def matmul(x, y):
+    '''
+    i = 2, 7, 5, 15, 31, 99
+    j = 2, 7, 5, 15, 99, 31
+    a = np.random.random(np.arange(np.product(i)).reshape(i).shape)
+    c = np.random.random(np.arange(np.product(j)).reshape(j).shape)
+    res2 = np.matmul(a, c)
+    res = matmul(a, c)
+    print((res2 - res).sum())
+    '''
+    if len(x.shape) == 2:
+        return np.dot(x, y)
+    else:
+        return np.array([matmul(x, y) for x, y in zip(x, y)])
+
+
+def norm(x=None):
+    """
+    x = [[0.1400, 0.3100, 0.4600, 0.2000, 0.6700],
+        [0.3600, 0.6700, 0.3400, 0.0200, 0.7500],
+        [0.1800, 0.5200, 0.9600, 0.2300, 0.4800],
+        [0.6100, 0.3300, 0.0000, 0.3100, 0.2100],
+        [0.8400, 0.9400, 0.7800, 0.2300, 0.5300]]
+    """
+    if x is None:
+        x = torch.randint(0, 100, (5, 5)) / 100
+    l2 = torch.norm(x, dim=1, keepdim=True)
+    print([(i @ i).sum() ** .5 for i in x])
+    print(l2.numpy().tolist())
+    print("17 norm npImplementation : ", );
+    quit()
+    print([(i * i.T).sum() ** .5 for i in x])
+    print([(i.dot(i)).sum() ** .5 for i in x])
+    res = []
+    for i in x:
+        j = [j * j for j in i]
+        res.append(sum(j) ** .5)
+    print(res)
+
 
 def softmaxTorch(x, axis=1, returnLogSoftmax=False):
     xMax = x.max(axis, keepdims=True)[0]
     tmp = x - xMax
-    s = torch.exp(tmp).sum(axis, keepdims=True)
+    s = torch.exp(tmp).sum(axis, keepdim=True)
     out = tmp - np.log(s)
     if not returnLogSoftmax:
         out = torch.exp(out)
@@ -44,6 +85,7 @@ def npNllLoss(yHat, y):
         raise Exception("not implemented")
     return nll
 
+
 def npCrossEntropy(yHat, y):
     yHat = softmax(yHat, 1, returnLogSoftmax=True)
     return npNllLoss(yHat, y)
@@ -72,8 +114,12 @@ def bce():
     output = bce_loss(input, target)
     print("148 bce local output: ", output)
 
+
 bce()
-print("151  local : ", );quit()
+print("151  local : ", );
+quit()
+
+
 def temp():
     # setSeed(10)
     yHat = torch.randn(13, 53, 23)
