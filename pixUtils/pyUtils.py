@@ -1,3 +1,4 @@
+import hashlib
 import math
 import os
 import re
@@ -10,6 +11,9 @@ from itertools import groupby
 from itertools import zip_longest
 from itertools import permutations
 from itertools import combinations
+
+import shutil
+
 from .pixCommon import *
 from .bashIt import *
 
@@ -88,16 +92,24 @@ class DotDict(dict):
         self[key] = val
 
     def __repr__(self):
-        keys = list(self.keys())
+        dictData = self
+        data = self.dict2str(dictData)
+        return data
+
+    def dict2str(self, dictData, prefix=''):
+        keys = list(dictData.keys())
         nSpace = len(max(keys, key=lambda x: len(x))) + 2
         keys = sorted(keys)
         data = []
         for key in keys:
-            val = self[key]
-            if type(val) == str:
+            val = dictData[key]
+            if isinstance(val, dict):
+                val = self.dict2str(val, prefix=f"\t")
+            elif type(val) == str:
                 val = f"'{val}'"
-            data.append(f'{key:{nSpace}}: {val},')
-        data = '{\n%s\n}' % '\n'.join(data)
+            key = f"{prefix}{key}"
+            data.append(f'{key:{nSpace}}: {val}')
+        data = '\n%s\n' % '\n'.join(data)
         return data
 
     def copy(self):
@@ -124,11 +136,12 @@ class DotDict(dict):
         return res
 
 
-def readYaml(src, defaultDict=None):
-    data = defaultDict
-    if os.path.exists(src):
-        with open(src, 'r') as book:
-            data = yaml.safe_load(book)
+def readYaml(src, defaultDict=FileNotFoundError):
+    src = getPath(src)
+    if defaultDict == FileNotFoundError:
+        assert exists(src)
+    with open(src, 'r') as book:
+        data = yaml.safe_load(book)
     return DotDict(data)
 
 
@@ -446,10 +459,17 @@ def prr(name, img, getVal=False):
         data = f"{name:45s}:{dtype:15s} [{img.min():6.3f} {img.max():6.3f}] {shape:30s} [{nUnique} {unique[::step]}]"
     except:
         data = f"{name:45s}:{dtype:15s} [{np.min(img):6.3f} {np.max(img):6.3f}] {shape:30s} [{nUnique} {unique[::step]}]"
-    print(data.strip())
+    print(data)
 
 
 def dispVars(names, kwargs):
+    # print(f"_____________________{names}_____________________")
+    # for k, v in kwargs.items():
+    #     try:
+    #         print(f"{k}={v},", end=end)
+    #     except Exception as exp:
+    #         pass
+
     x = pd.DataFrame(kwargs.items(), columns=['variable', 'val'])
     nDelim = 0
     res = []
@@ -565,8 +585,10 @@ def unzipIt(src, desDir=None, rm=False):
         try:
             shutil.move(str(mvSrc), desDir)
         except Exception as exp:
-            shutil.rmtree(tempDir, ignore_errors=True)
-            raise Exception(exp)
+            raise Exception(f"""
+{exp}
+tempDir: {tempDir}
+""")
     shutil.rmtree(tempDir, ignore_errors=True)
     return desDir
 
@@ -620,6 +642,21 @@ def getGdownCmd(downloadCmd, url):
     return downloadCmd
 
 
+def s3dirop(src, *, cpDir=None, unzip=True, rm=False, skipExe=False):
+    awsKey = f"export AWS_ACCESS_KEY_ID={os.environ['AWS_ACCESS_KEY_ID']};export AWS_SECRET_ACCESS_KEY={os.environ['AWS_SECRET_ACCESS_KEY']}"
+    if src.startswith('s3://'):
+        isDownload = True
+        cpDir = getPath(cpDir)
+    else:
+        isDownload = False
+        src = getPath(src)
+    awsCmd = f'aws s3 cp {src} {cpDir}'
+    print(f'{awsCmd}')
+    exeIt(f'{awsKey};{awsCmd}', returnOutput='', debug='', skipExe=skipExe)
+    if isDownload and unzip:
+        unzipIt(f"{cpDir}/{basename(src)}", cpDir, rm=rm)
+
+
 def accessS3(src, des, isUpload, desName=None, rm=False, skipExe=False):
     src, des = src.rstrip('/'), des.rstrip('/')
     src = src if src != 's3:' else 's3:/'
@@ -641,7 +678,8 @@ def accessS3(src, des, isUpload, desName=None, rm=False, skipExe=False):
     exeIt(f'{awsKey};{awsCmd}', returnOutput='', debug='', skipExe=skipExe)
 
 
-def s3Sync(local, remote, isUpload, s3hash=''):
+def s3Sync(local, remote, isUpload, s3hash='', rmRemote=False, skipExe=False):
+    awsKey = f"export AWS_ACCESS_KEY_ID={os.environ['AWS_ACCESS_KEY_ID']};export AWS_SECRET_ACCESS_KEY={os.environ['AWS_SECRET_ACCESS_KEY']}"
     if not s3hash:
         if not isUpload:
             raise Exception("pass hash for downloading")
@@ -658,11 +696,17 @@ def s3Sync(local, remote, isUpload, s3hash=''):
     remote = f"{remote}/{s3hash.strip()}_{basename(local)}"
     op, src, des = 'downloading', remote, local
     if isUpload:
+        if rmRemote:
+            awsCmd = f'aws s3 rm {remote} --recursive'
+            print(f"rmRemote: {awsCmd}")
+            if not skipExe:
+                exeIt(f'{awsKey};{awsCmd} > /dev/null 2>&1', debug='', returnOutput='')
         op, src, des = 'uploading', local, remote
-    awsKey = f"export AWS_ACCESS_KEY_ID={os.environ['AWS_ACCESS_KEY_ID']};export AWS_SECRET_ACCESS_KEY={os.environ['AWS_SECRET_ACCESS_KEY']}"
+
     awsCmd = f'aws s3 sync {src} {des}'
     print(f"{op}: {awsCmd}")
-    exeIt(f'{awsKey};{awsCmd}', debug='', returnOutput='')
+    if not skipExe:
+        exeIt(f'{awsKey};{awsCmd} > /dev/null 2>&1', debug='', returnOutput='')
 
 
 def randomIt(x, dtype, asTorch=False, xmin=-100, xmax=100):
@@ -676,19 +720,22 @@ def randomIt(x, dtype, asTorch=False, xmin=-100, xmax=100):
     return x
 
 
-def downloadDB(url, des, cache=None, unzip=True):
+def downloadDB(url, desDir, cache=None, unzip=True, skipExe=False):
     url = url.strip()
     if cache and exists(getPath(cache)):
         returnData = [getPath(cache)]
     else:
-        des = getPath(des)
-        dirop(des)
-        done, downloadCmd = False, f'cd "{des}";'
-        old = set(glob(f'{des}/*'))
+        desDir = getPath(desDir)
+        dirop(desDir)
+        done, downloadCmd = False, f'cd "{desDir}";'
+        old = set(glob(f'{desDir}/*'))
         if url.startswith('git+'):
             downloadCmd += f'git clone "{url.lstrip("git+").lstrip()}";'
         elif url.startswith('gdrive+'):
             url = url.lstrip('gdrive+').lstrip()
+            downloadCmd = getGdownCmd(downloadCmd, url)
+        elif url.startswith('gdown+'):
+            url = url.lstrip('gdown+').lstrip()
             downloadCmd = getGdownCmd(downloadCmd, url)
         elif url.startswith('youtube+'):
             downloadCmd += f"youtube-dl '{url.lstrip('youtube+').lstrip()}' --print-json --restrict-filenames -o '%(id)s.%(ext)s'"
@@ -699,15 +746,16 @@ def downloadDB(url, des, cache=None, unzip=True):
         elif url.startswith('s3down+'):
             done = True
             src = 's3down+'.join(url.split("s3down+")[1:]).lstrip()
-            accessS3(src.lstrip(), des, isUpload=False)
+            accessS3(src.lstrip(), desDir, isUpload=False)
         else:
             raise Exception(f"unknown url format: {url}")
-        print("____________________________________________________________________________________________________________________")
-        print(f"\n             {downloadCmd}\n")
-        print("____________________________________________________________________________________________________________________")
+        if not skipExe:
+            print("____________________________________________________________________________________________________________________")
+            print(f"\n             {downloadCmd}\n")
+            print("____________________________________________________________________________________________________________________")
         if not done:
-            exeIt(downloadCmd, returnOutput=False, debug=True)
-        returnData = list(set(glob(f'{des}/*')) - old)
+            exeIt(downloadCmd, returnOutput=False, debug=False, skipExe=skipExe)
+        returnData = list(set(glob(f'{desDir}/*')) - old)
     if len(returnData) != 1:
         print("skipping unzip no. file downloaded != 1")
         print("returnData:", returnData)
@@ -874,15 +922,24 @@ def getEc2PushPull(userName, pemPath):
         echo;echo;echo {desDir};echo;echo
         '''
         cmd = ';'.join([c.strip() for c in cmd.split('\n')])[1:]
+        p = f'echo push {src} {desDir}'
+        with open(dirop('/home/hippo/aEy22e/cmd/push.sh'), 'w') as book:
+            book.write(f'''
+
+echo
+echo                               {ec2.replace('.', '-')}
+echo
+{p}
+{cmd}
+''')
         print(f'''
         {cmd}
         ''')
 
     def ec2pull(remoteSrcs, desDir):
-        desDir = desDir.strip()
+        remoteSrcs, desDir = [r.strip() for r in remoteSrcs], desDir.strip()
         cpFiles = 'echo'
         for r in remoteSrcs:
-            r = r.strip()
             cpFiles += f'\n    {scp} -r {ec2}:{r} {desDir}/'
         cmd = f'''
         mkdir -p {desDir}
@@ -891,6 +948,18 @@ def getEc2PushPull(userName, pemPath):
         echo;echo;echo {desDir};echo;echo
         '''
         cmd = ';'.join([c.strip() for c in cmd.split('\n')])[1:]
+        p = ''
+        for src in remoteSrcs:
+            p += f'echo pull {src} {desDir}\n'
+        with open(dirop('/home/hippo/aEy22e/cmd/pull.sh'), 'w') as book:
+            book.write(f'''
+
+echo
+echo                               {ec2.replace('.', '-')}
+echo
+{p}
+{cmd}
+''')
         print(f"""
         {cmd}
         """)
@@ -908,15 +977,22 @@ def getIp(ip, cfgPath='/home/hippo/Desktop'):
     return ip
 
 
-def demonRunner(env, exeCmd, logPath, mainFn):
+def demonRunner(pyPath, mainFn, logPath, skipExe=False):
     args = getArgs(startDemon=True)
     if args['startDemon']:
-        exeCmd = f'{env};nohup {exeCmd} --startDemon=n >> {logPath} 2>&1 &'
-        print("________________________________________________________")
-        print(exeCmd)
-        print("________________________________________________________")
-        os.system(exeCmd)
+        exeCmd = f'nohup {python} {pyPath} --startDemon=n >> {logPath} 2>&1 &'
+        print(f"""
+________________________________________________________
+        {exeCmd}
+
+        echo;tail -10 {logPath}; echo
+
+
+________________________________________________________""")
+        if not skipExe:
+            os.system(exeCmd)
     else:
+        sys.argv = [s for s in sys.argv if s != '--startDemon=n']
         mainFn()
 
 
@@ -962,3 +1038,7 @@ def getCondaPkgs(pkgName=None, cacheDir='/home/hippo/miniconda3', rm=''):
                 print(v)
                 print()
             print('\n\n')
+
+
+def shaIt(s):
+    return int(hashlib.sha1(s.encode("utf-8")).hexdigest(), 16) % (10 ** 32)

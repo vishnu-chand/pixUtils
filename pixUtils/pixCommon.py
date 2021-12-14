@@ -62,7 +62,8 @@ def getArgs(**kwArgs):
     return vars(parser.parse_known_args()[0])
 
 
-def imResize(img, sizeRC=None, scaleRC=None, interpolation=cv2.INTER_LINEAR):
+def imResize(img, sizeRC=None, scaleRC=None, interpolation=None):
+    interpolation = interpolation or cv2.INTER_LINEAR
     if sizeRC is not None:
         r, c = sizeRC[:2]
     else:
@@ -91,6 +92,11 @@ def osSysMove(src, des):
 
 
 def moveCopy(src, des, op, isFile, rm):
+    assert src != des, f'''
+src: {src}
+des: {des}
+both are same path
+    '''
     des = getPath(des)
     desDir = dirname(des)
     if not rm and exists(des):
@@ -108,11 +114,14 @@ def moveCopy(src, des, op, isFile, rm):
             shutil.rmtree(des, ignore_errors=True)
     mkpath = dirname(des)
     if not exists(mkpath):
-        os.makedirs(mkpath)
+        try:
+            os.makedirs(mkpath)
+        except FileExistsError:
+            pass
     return op(src, des)
 
 
-def dirop(path, *, mkdir=True, rm=False, isFile=None, cpDir=None, mvDir=None, desName=None):
+def dirop(path, *, mkdir=True, rm=False, isFile=None, cpDir=None, mvDir=None, symDir=None, desName=None):
     path = getPath(path)
     if isFile is None:
         isFile = os.path.isfile(path) if os.path.exists(path) else os.path.splitext(path)[-1]
@@ -127,7 +136,10 @@ def dirop(path, *, mkdir=True, rm=False, isFile=None, cpDir=None, mvDir=None, de
             shutil.rmtree(path, ignore_errors=True)
     mkpath = dirname(path) if isFile else path
     if mkdir and not exists(mkpath) and mkpath:
-        os.makedirs(mkpath)
+        try:
+            os.makedirs(mkpath)
+        except FileExistsError:
+            pass
     if cpDir:
         copy = shutil.copy if isFile else shutil.copytree
         desName = desName or path
@@ -135,6 +147,9 @@ def dirop(path, *, mkdir=True, rm=False, isFile=None, cpDir=None, mvDir=None, de
     elif mvDir:
         desName = desName or path
         path = moveCopy(path, f"{mvDir}/{basename(desName)}", osSysMove, isFile, rm=rm)
+    elif symDir:
+        desName = desName or path
+        path = moveCopy(path, f"{symDir}/{basename(desName)}", os.symlink, isFile, rm=rm)
     return path
 
 
@@ -171,9 +186,9 @@ def rglob(p):
         return res
 
 
-def getTraceBack(searchPys=None):
+def getTraceBack(searchPys=None, tracebackData=None):
     errorTraceBooks = [basename(p) for p in searchPys or []]
-    otrace = traceback.format_exc()
+    otrace = tracebackData or traceback.format_exc()
     trace = otrace.strip().split('\n')
     msg = trace[-1]
     done = False

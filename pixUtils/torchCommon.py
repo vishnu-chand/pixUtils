@@ -1,8 +1,12 @@
+from collections import deque
+from copy import deepcopy
+
 import torch
 import random
 from torch import nn
 from pixUtils import *
 import torch.nn.functional as F
+
 try:
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
@@ -13,6 +17,7 @@ try:
 except:
     pass
 from torch.utils.data import Dataset, DataLoader, ConcatDataset, IterableDataset
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 torch.set_printoptions(threshold=sys.maxsize, linewidth=sys.maxsize, sci_mode=False)
@@ -80,6 +85,7 @@ def ckpt2pth(ckptPath, pthPath, model=None, lModel=None):
             def __init__(self):
                 super().__init__()
                 self.model = model
+
         lModel = DummyLit()
     ckpt = torch.load(ckptPath, map_location='cpu')
     lModel.load_state_dict(ckpt['state_dict'], strict=True)
@@ -107,6 +113,7 @@ for n, m in model.named_modules():
         print(n)
         lr2name['freezeBN'].append(n)
 model, lrParams = setLearningRate(model, lr2name=lr2name, verbose=True)
+optimizer = optim.Adam(lrParams)
     '''
     if verbose:
         for lr, name in lr2name.items():
@@ -172,7 +179,8 @@ def weight_init(m):
         init.constant_(m.bias.data, 0)
     elif isinstance(m, nn.Linear):
         init.xavier_normal_(m.weight.data)
-        init.normal_(m.bias.data)
+        if m.bias is not None:
+            init.normal_(m.bias.data)
     elif isinstance(m, nn.LSTM):
         for param in m.parameters():
             if len(param.shape) >= 2:
@@ -212,8 +220,8 @@ def loadWeights(model, weights, layerMap=None, debug=None):
     for lname, lweight in weights.items():
         mapData = layerMap.get(lname)
         if mapData:
+            print(f"modifying: {lname} [{lweight.shape}]", end=' ')
             lname, wCh, mCh, randWch, randMch = mapData.get('lname'), mapData.get('wCh'), mapData.get('mCh'), mapData.get('randWch'), mapData.get('randMch')  # name
-            print(f"modifying: {lname} [{lweight.shape}]",end=' ')
             if wCh:
                 lweight = lweight[wCh]  # axis0
             if mCh:
@@ -247,10 +255,28 @@ def loadWeights(model, weights, layerMap=None, debug=None):
         quit()
 
 
+def describeOptimizer(optimizerStateDict):
+    assert isinstance(optimizerStateDict, dict), "input should be state dict"
+    for k, v in optimizerStateDict['state'].items():
+        for s, v in v.items():
+            try:
+                prr(f"optimizerStateDict['state']['{k}']['{s}']: ", v)
+            except:
+                print(k, v)
+    print("***********************************************")
+    for k, v in optimizerStateDict['param_groups'][0].items():
+        try:
+            prr(f"38 load_state_dict optimizer {k}: v", v)
+        except:
+            print(k, v)
+
+
 def describeModel(model, inputs, batchSize, device=device, summary=True, fps=False, remove=(), *a, **kw):
+    assert type(inputs) == list
     cols = ("Index", "Type", "Channels", "Kernel Shape", "Output Shape", "Params", "Mul Add")
     remove = [x.lower().replace(' ', '') for x in remove]
     inputs = [x.to(device) for x in inputs]
+
     cols = [x for x in cols if x.lower().replace(' ', '') not in remove]
     removeIndex = False if "Index" in cols else True
     if not removeIndex:
@@ -383,10 +409,10 @@ def describeModel(model, inputs, batchSize, device=device, summary=True, fps=Fal
             print(df.replace(np.nan, "-"))
             print("-" * max_repr_width)
             df_total = pd.DataFrame(
-                    {"Total params": (df_sum["Params"] + df_sum["params_nt"]),
-                     "Trainable params": df_sum["Params"],
+                    {"Total params"        : (df_sum["Params"] + df_sum["params_nt"]),
+                     "Trainable params"    : df_sum["Params"],
                      "Non-trainable params": df_sum["params_nt"],
-                     "Mul Add": df_sum["Mul Add"]
+                     "Mul Add"             : df_sum["Mul Add"]
                      },
                     index=['Totals']
             ).T
@@ -493,3 +519,114 @@ def CopyPaste(srcFn, pasteFn, pasteImPaths, minOverlay=.7, p=0.5):
         return data
 
     return __copyPaste
+
+
+def getDevice(x):
+    return torch.device('cuda') if x.is_cuda else torch.device('cpu')
+
+
+def asDevice(x, y):
+    if x.is_cuda != y.is_cuda:
+        x, y = x.to('cuda'), y.to('cuda')
+    return x, y
+
+
+def is_parallel(model):
+    return type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel)
+
+
+def copy_attr(a, b, include=(), exclude=()):
+    # Copy attributes from b to a, options to only include [...] and to exclude [...]
+    for k, v in b.__dict__.items():
+        if (len(include) and k not in include) or k.startswith('_') or k in exclude:
+            continue
+        else:
+            setattr(a, k, v)
+
+
+class ModelEMA:
+    """ Model Exponential Moving Average from https://github.com/rwightman/pytorch-image-models
+    Keep a moving average of everything in the model state_dict (parameters and buffers).
+    This is intended to allow functionality like
+    https://www.tensorflow.org/api_docs/python/tf/train/ExponentialMovingAverage
+    A smoothed version of the weights is necessary for some training schemes to perform well.
+    This class is sensitive where it is initialized in the sequence of model init,
+    GPU assignment and distributed training wrappers.
+    """
+
+    def __init__(self, model, initUpdates, decay=0.9999):
+        # initUpdates = start_epoch * number_of_batches // accumulate  # set EMA updates
+        # Create EMA
+        self.ema = deepcopy(model.module if is_parallel(model) else model).eval()  # FP32 EMA
+        # if next(model.parameters()).device.type != 'cpu':
+        #     self.ema.half()  # FP16 EMA
+        self.updates = initUpdates  # number of EMA updates
+        self.decay = lambda x: decay * (1 - math.exp(-x / 2000))  # decay exponential ramp (to help early epochs)
+        for p in self.ema.parameters():
+            p.requires_grad_(False)
+
+    def update(self, model):
+        # Update EMA parameters
+        with torch.no_grad():
+            self.updates += 1
+            d = self.decay(self.updates)
+
+            msd = model.module.state_dict() if is_parallel(model) else model.state_dict()  # model state_dict
+            for k, v in self.ema.state_dict().items():
+                if v.dtype.is_floating_point:
+                    v *= d
+                    v += (1. - d) * msd[k].detach()
+
+    def update_attr(self, model, include=(), exclude=('process_group', 'reducer')):
+        # Update EMA attributes
+        copy_attr(self.ema, model, include, exclude)
+
+
+class TopK:
+    def __init__(self, nHistory, topK, trainVal, isDescending=True):
+        self.data = dict()
+        self.nHistory = nHistory
+        self.topK = topK
+        self.isDescending = isDescending
+        self.trainVal = trainVal
+
+    def forward(self, ids, loss):
+        loss = loss.item() / len(ids)
+        for i in ids:
+            if i not in self.data:
+                self.data[i] = deque(maxlen=self.nHistory)
+            self.data[i].append(loss)
+
+    def __repr__(self):
+        data = sorted(self.data.items(), key=lambda x: sum(x[1]), reverse=self.isDescending)
+        res = f'\n'
+        for k, v in data[:self.topK]:
+            res += f"top {self.trainVal} error: {k} = {', '.join([f'{i:8.4f}' for i in v])}\n"
+        self.data = dict(data[:2 * self.topK])  # trim data
+        return res
+
+    @staticmethod
+    def readLog(logPath):
+        with open(logPath, 'r') as book:
+            lines = book.read().split('\n')
+        topK = defaultdict(list)
+        for line in lines[::-1]:
+            if len(topK) > 50:
+                break
+            if '=' in line:
+                line = line.replace('=', ',').split(',')
+                line = [l.strip() for l in line]
+                f = line[0]
+                try:
+                    losses = [float(l) for l in line[1:]]
+                    topK[f].extend(losses)
+                except:
+                    pass
+        topK = sorted(topK.items(), key=lambda x: np.array(x[1]).sum())
+        for k, v in topK:
+            v = np.array(v)
+            print(k)
+
+
+if __name__ == '__main__':
+    TopK.readLog('/home/hippo/aEy22e/girishTorchFS2v2/trainDec03_19_40_17023588.log')
